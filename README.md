@@ -1,7 +1,7 @@
 # JMR Audio
 
 ### Open. Adjust. Mix.
-
+![JMR Audio Plugin Collection](images/jmr-audio-overview.png)
 **Free audio plugins for REAPER.**
 
 JMR Audio is a collection of lightweight audio processing plugins designed with one simple philosophy:
