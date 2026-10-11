@@ -1,0 +1,122 @@
+desc:JMR Audio - Chorus One v1.1
+// JMR Audio | Open. Adjust. Mix.
+// Send/return edition: output contains ONLY modulated chorus, never the dry input.
+
+slider1:0.65<0.10,5.00,0.05>-Rate (Hz)
+slider2:80<0,100,1>-Depth (%)
+slider3:100<0,100,1>-Mix / Wet Level (%)
+slider4:1<0,1,1{Mono,Stereo}>-Mode
+
+@init
+buflen=ceil(srate*0.080)+16;
+leftbuf=0;
+rightbuf=buflen;
+memset(leftbuf,0,buflen*2);
+wpos=0;
+phase=0;
+mouseprev=0;
+dragging=0;
+pi2=2*$pi;
+function clamp(x,lo,hi) (min(hi,max(lo,x)););
+function delayed(base, samples) local(p,a,b,f) (
+  p=wpos-samples;
+  p<0 ? p+=buflen;
+  a=floor(p);
+  b=a+1;
+  b>=buflen ? b=0;
+  f=p-a;
+  base[a]*(1-f)+base[b]*f;
+);
+
+@slider
+rate=slider1;
+depth=slider2*0.01;
+amount=slider3*0.01;
+mode=slider4;
+
+@sample
+xL=spl0;
+xR=spl1;
+// Base 17ms; depth spans up to +/- 11ms. Slow LFO creates a deep water-like sweep.
+center=0.017*srate;
+sweep=0.011*srate*depth;
+modL=center+sweep*sin(phase);
+modR=center+sweep*sin(phase+(mode==1 ? $pi*0.5 : 0));
+// Mono mode derives a single chorus voice from mono-summed input.
+mode==0 ? (
+  mono=(xL+xR)*0.5;
+  leftbuf[wpos]=mono;
+  rightbuf[wpos]=mono;
+  chorL=delayed(leftbuf,modL);
+  chorR=chorL;
+) : (
+  leftbuf[wpos]=xL;
+  rightbuf[wpos]=xR;
+  chorL=delayed(leftbuf,modL);
+  chorR=delayed(rightbuf,modR);
+);
+// Send effect: dry signal comes from the original track, never this plugin.
+// Mix is the return wet level: 0% silence, 100% full modulated signal.
+spl0=chorL*amount;
+spl1=chorR*amount;
+wpos+=1;
+wpos>=buflen ? wpos=0;
+phase+=pi2*rate/srate;
+phase>=pi2 ? phase-=pi2;
+
+@gfx 640 310
+function within(x,y,w,h) (mouse_x>=x && mouse_x<x+w && mouse_y>=y && mouse_y<y+h;);
+function txt(x,y,str) (gfx_x=x;gfx_y=y;gfx_drawstr(str););
+function track(x,y,w,value) (
+  gfx_set(0.16,0.23,0.27,1);gfx_rect(x,y,w,16);
+  gfx_set(0.19,0.85,0.74,1);gfx_rect(x,y,w*value,16);
+);
+gfx_set(0.07,0.09,0.12,1);gfx_rect(0,0,gfx_w,gfx_h);
+gfx_setfont(1,"Arial",20);
+gfx_set(0.19,0.85,0.74,1);txt(22,18,"JMR AUDIO  /  CHORUS ONE");
+gfx_setfont(1,"Arial",13);
+gfx_set(0.58,0.67,0.72,1);txt(22,51,"DEEP, SLOW, FLUID MODULATION  /  V1.1");
+gfx_set(0.92,0.96,0.97,1);
+txt(24,94,sprintf(#rate,"RATE  %.2f Hz",slider1));
+txt(244,94,sprintf(#depth,"DEPTH  %d%%",slider2));
+txt(462,94,sprintf(#mix,"MIX  %d%%",slider3));
+track(24,125,176,(slider1-0.1)/4.9);
+track(244,125,176,slider2/100);
+track(462,125,156,slider3/100);
+gfx_set(0.92,0.96,0.97,1);txt(24,177,"MODE");
+gfx_set(0.16,0.23,0.27,1);gfx_rect(24,203,260,45);
+gfx_set(0.19,0.85,0.74,1);gfx_rect(24,203,260,3);
+gfx_setfont(1,"Arial",18);
+gfx_set(0.92,0.96,0.97,1);txt(41,215,slider4==0 ? "MONO" : "STEREO");
+gfx_setfont(1,"Arial",13);
+gfx_set(0.58,0.67,0.72,1);txt(316,212,"MIX 100% = WET ONLY");
+txt(316,234,"(FOR FX SEND / RETURN)");
+txt(22,285,"Open. Adjust. Mix.");
+pressed=(mouse_cap&1)!=0;
+pressed && !mouseprev ? (
+  within(24,203,260,45) ? (
+    slider4=1-slider4;
+    mode=slider4;
+    sliderchange(1<<3);
+  );
+  within(24,117,176,32) ? dragging=1;
+  within(244,117,176,32) ? dragging=2;
+  within(462,117,156,32) ? dragging=3;
+);
+pressed && dragging==1 ? (
+  slider1=floor((0.1+clamp((mouse_x-24)/176,0,1)*4.9)*20+0.5)/20;
+  rate=slider1;
+  sliderchange(1<<0);
+);
+pressed && dragging==2 ? (
+  slider2=floor(clamp((mouse_x-244)/176,0,1)*100+0.5);
+  depth=slider2*0.01;
+  sliderchange(1<<1);
+);
+pressed && dragging==3 ? (
+  slider3=floor(clamp((mouse_x-462)/156,0,1)*100+0.5);
+  amount=slider3*0.01;
+  sliderchange(1<<2);
+);
+!pressed ? dragging=0;
+mouseprev=pressed;

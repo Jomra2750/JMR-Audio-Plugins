@@ -1,0 +1,115 @@
+desc:JMR Audio - Buss Comp v1.3
+// Stereo-linked feed-forward compressor. Custom GUI based on working Gate One.
+slider1:-18<-40,0,0.1>-Threshold (dB)
+slider2:3<0,5,1{1.5:1,2:1,3:1,4:1,6:1,10:1}>-Ratio
+slider3:3<0,5,1{0.1,0.3,1,3,10,30}>-Attack (ms)
+slider4:1<0,4,1{100,200,400,800,1600}>-Release (ms)
+slider5:0<0,18,0.1>-Makeup (dB)
+slider6:0<0,5,1{Off,40,75,125,220,400}>-Sidechain HP (Hz)
+slider7:1<0,1,1{Bypass,On}>-Enabled
+
+@init
+function clamp(x,a,b) (max(a,min(b,x)););
+function db2lin(db) (exp(db*0.11512925464970229););
+env=0;meter_gr=0;hp_xl=0;hp_xr=0;hp_yl=0;hp_yr=0;
+dragging=0;drag_idx=-1;
+
+@slider
+ratio=slider2==0?1.5:slider2==1?2:slider2==2?3:slider2==3?4:slider2==4?6:10;
+attack_ms=slider3==0?0.1:slider3==1?0.3:slider3==2?1:slider3==3?3:slider3==4?10:30;
+release_ms=slider4==0?100:slider4==1?200:slider4==2?400:slider4==3?800:1600;
+hp_hz=slider6==0?0:slider6==1?40:slider6==2?75:slider6==3?125:slider6==4?220:400;
+a_coef=exp(-1/(attack_ms*0.001*srate));
+r_coef=exp(-1/(release_ms*0.001*srate));
+makeup=db2lin(slider5);
+hp_a=hp_hz>0?exp(-2*$pi*hp_hz/srate):0;
+meter_coef=exp(-1/(0.15*srate));
+
+@block
+// Refresh DSP settings even when parameters change from our custom GUI.
+ratio=slider2==0?1.5:slider2==1?2:slider2==2?3:slider2==3?4:slider2==4?6:10;
+attack_ms=slider3==0?0.1:slider3==1?0.3:slider3==2?1:slider3==3?3:slider3==4?10:30;
+release_ms=slider4==0?100:slider4==1?200:slider4==2?400:slider4==3?800:1600;
+hp_hz=slider6==0?0:slider6==1?40:slider6==2?75:slider6==3?125:slider6==4?220:400;
+a_coef=exp(-1/(attack_ms*0.001*srate));
+r_coef=exp(-1/(release_ms*0.001*srate));
+makeup=db2lin(slider5);
+hp_a=hp_hz>0?exp(-2*$pi*hp_hz/srate):0;
+meter_coef=exp(-1/(0.15*srate));
+
+@sample
+l=spl0;r=spl1;
+hp_hz>0 ? (
+  dl=hp_a*(hp_yl+l-hp_xl);hp_xl=l;hp_yl=dl;
+  dr=hp_a*(hp_yr+r-hp_xr);hp_xr=r;hp_yr=dr;
+) : (dl=l;dr=r;);
+level=max(abs(dl),abs(dr));
+level>env ? env=a_coef*env+(1-a_coef)*level : env=r_coef*env+(1-r_coef)*level;
+level_db=20*log(max(env,0.000000001))/log(10);
+over=max(0,level_db-slider1);
+gr_db=over*(1-1/ratio);
+gain=db2lin(-gr_db);
+slider7 ? (spl0=l*gain*makeup;spl1=r*gain*makeup;) : (spl0=l;spl1=r;gr_db=0;);
+meter_gr=max(gr_db,meter_gr*meter_coef);
+
+@gfx 760 390
+ratio=slider2==0?1.5:slider2==1?2:slider2==2?3:slider2==3?4:slider2==4?6:10;
+attack_ms=slider3==0?0.1:slider3==1?0.3:slider3==2?1:slider3==3?3:slider3==4?10:30;
+release_ms=slider4==0?100:slider4==1?200:slider4==2?400:slider4==3?800:1600;
+hp_hz=slider6==0?0:slider6==1?40:slider6==2?75:slider6==3?125:slider6==4?220:400;
+function col(r,g,b) (gfx_set(r,g,b,1););
+function label(x,y,t) (gfx_x=x;gfx_y=y;gfx_drawstr(t););
+function knob(x,y,r,val,lo,hi) local(a) (
+  col(0.16,0.19,0.23);gfx_circle(x,y,r,1);
+  col(0.35,0.41,0.47);gfx_circle(x,y,r,0);
+  a=(-0.75+1.5*(val-lo)/(hi-lo))*$pi;
+  col(0.26,0.84,0.74);gfx_line(x,y,x+cos(a)*r*0.75,y+sin(a)*r*0.75,3);
+);
+col(0.065,0.08,0.105);gfx_rect(0,0,gfx_w,gfx_h);
+col(0.26,0.84,0.74);gfx_rect(0,0,gfx_w,5);
+gfx_setfont(1,"Arial",24,'b');col(0.95,0.97,0.99);label(24,20,"JMR AUDIO   /   BUSS COMP");
+gfx_setfont(1,"Arial",13);col(0.56,0.62,0.68);label(25,56,"STEREO LINKED COMPRESSOR   -   v1.3");
+i=0;
+loop(6,
+  x=72+i*123;
+  i==0 ? (v=slider1;lo=-40;hi=0;nm="THRESH";)
+  : i==1 ? (v=slider2;lo=0;hi=5;nm="RATIO";)
+  : i==2 ? (v=slider3;lo=0;hi=5;nm="ATTACK";)
+  : i==3 ? (v=slider4;lo=0;hi=4;nm="RELEASE";)
+  : i==4 ? (v=slider5;lo=0;hi=18;nm="MAKEUP";)
+  : (v=slider6;lo=0;hi=5;nm="SC HP";);
+  knob(x,155,30,v,lo,hi);
+  col(0.90,0.93,0.96);label(x-36,209,nm);
+  col(0.26,0.84,0.74);gfx_x=x-36;gfx_y=234;
+  i==0 ? (gfx_drawnumber(slider1,1);gfx_drawstr(" dB");)
+  : i==1 ? (gfx_drawnumber(ratio,1);gfx_drawstr(":1");)
+  : i==2 ? (gfx_drawnumber(attack_ms,1);gfx_drawstr(" ms");)
+  : i==3 ? (gfx_drawnumber(release_ms,0);gfx_drawstr(" ms");)
+  : i==4 ? (gfx_drawnumber(slider5,1);gfx_drawstr(" dB");)
+  : (hp_hz==0 ? gfx_drawstr("OFF") : (gfx_drawnumber(hp_hz,0);gfx_drawstr(" Hz");));
+  i+=1;
+);
+col(0.13,0.16,0.19);gfx_rect(20,280,720,90);
+col(0.90,0.93,0.96);label(35,292,"GAIN REDUCTION");
+col(0.19,0.23,0.27);gfx_rect(185,294,410,18);
+col(0.26,0.84,0.74);gfx_rect(185,294,clamp(meter_gr/24,0,1)*410,18);
+col(0.90,0.93,0.96);gfx_x=607;gfx_y=294;gfx_drawnumber(meter_gr,1);gfx_drawstr(" dB");
+col(slider7 ? 0.26 : 0.65,slider7 ? 0.84 : 0.26,slider7 ? 0.74 : 0.26);
+gfx_rect(625,325,100,27);col(0.05,0.07,0.08);label(642,331,slider7 ? "ACTIVE" : "BYPASS");
+col(0.56,0.62,0.68);label(35,342,"DRAG UP / DOWN  |  SHIFT = FINE  |  SC HP: DETECTOR ONLY");
+mouse_cap&1 ? (
+  !dragging ? (
+    dragging=1;drag_y=mouse_y;drag_idx=-1;
+    i=0;loop(6,x=72+i*123;abs(mouse_x-x)<46 && abs(mouse_y-155)<54 ? (drag_idx=i;drag_value=i==0?slider1:i==1?slider2:i==2?slider3:i==3?slider4:i==4?slider5:slider6;);i+=1;);
+    mouse_x>=625 && mouse_x<=725 && mouse_y>=325 && mouse_y<=354 ? (slider7=1-slider7;sliderchange(64););
+  );
+  drag_idx>=0 ? (
+    delta=drag_y-mouse_y;fine=(mouse_cap&8)?0.1:1;
+    drag_idx==0 ? (slider1=clamp(floor((drag_value+delta*0.18*fine)*10+0.5)/10,-40,0);sliderchange(1);)
+    : drag_idx==1 ? (slider2=clamp(floor(drag_value+delta*0.04*fine+0.5),0,5);sliderchange(2);)
+    : drag_idx==2 ? (slider3=clamp(floor(drag_value+delta*0.04*fine+0.5),0,5);sliderchange(4);)
+    : drag_idx==3 ? (slider4=clamp(floor(drag_value+delta*0.04*fine+0.5),0,4);sliderchange(8);)
+    : drag_idx==4 ? (slider5=clamp(floor((drag_value+delta*0.12*fine)*10+0.5)/10,0,18);sliderchange(16);)
+    : (slider6=clamp(floor(drag_value+delta*0.04*fine+0.5),0,5);sliderchange(32););
+  );
+) : (dragging=0;drag_idx=-1;);

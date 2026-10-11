@@ -1,0 +1,138 @@
+desc:JMR Audio - Brickwall One v1.3
+// Stereo linked, lookahead SAMPLE-PEAK limiter. Not a true-peak limiter.
+// Controls are custom-drawn; no REAPER parameter sliders in plugin GUI.
+slider1:0<0,18,0.1>-Input Gain (dB)
+slider2:-0.5<-3,0,0.1>-Output Ceiling (dBFS)
+slider3:0<0,5,1{50,100,200,400,800,Auto}>-Release
+slider4:2<0,3,1{1,2,3,5}>-Lookahead (ms)
+slider5:1<0,1,1{Bypass,On}>-Enabled
+
+@init
+function clamp(x,a,b) (max(a,min(b,x)););
+function db2lin(db) (exp(db*0.11512925464970229););
+function lin2db(x) (20*log(max(x,0.000000001))/log(10););
+// 16384 samples per channel: safe for <=5 ms lookahead at common rates.
+LBASE=0;RBASE=16384;
+writepos=0; gain_env=1; meter_gr=0; meter_out=-120;
+dragging=0;drag_idx=-1;
+
+@slider
+look_ms=slider4==0?1:slider4==1?2:slider4==2?3:5;
+look_n=clamp(floor(srate*look_ms*0.001+0.5),1,8192);
+// Delay is fixed per selected lookahead. Host PDC is reported.
+pdc_delay=look_n;pdc_bot_ch=0;pdc_top_ch=2;
+
+@block
+look_ms=slider4==0?1:slider4==1?2:slider4==2?3:5;
+new_n=clamp(floor(srate*look_ms*0.001+0.5),1,8192);
+new_n!=look_n ? (look_n=new_n;writepos=0;gain_env=1;memset(LBASE,0,16384);memset(RBASE,0,16384););
+pdc_delay=look_n;pdc_bot_ch=0;pdc_top_ch=2;
+in_gain=db2lin(slider1);
+ceiling=db2lin(slider2);
+rel_ms=slider3==0?50:slider3==1?100:slider3==2?200:slider3==3?400:slider3==4?800:200;
+rel_coeff=exp(-1/(rel_ms*0.001*srate));
+meter_coeff=exp(-1/(0.18*srate));
+
+@sample
+// Read GUI-controlled values directly to guarantee they affect DSP.
+in_gain=db2lin(slider1);
+ceiling=db2lin(slider2);
+rel_ms=slider3==0?50:slider3==1?100:slider3==2?200:slider3==3?400:slider3==4?800:200;
+rel_coeff=exp(-1/(rel_ms*0.001*srate));
+// Store incoming amplified samples. Delayed output allows gain to react
+// before the incoming peak reaches the output.
+LBASE[writepos]=spl0*in_gain;
+RBASE[writepos]=spl1*in_gain;
+// Lookahead peak across the delayed output sample and all newer samples.
+// Straight scan for clarity/reliability; optimize in later versions if needed.
+peak=0;
+scan_i=0;
+idx=writepos-look_n;
+idx<0 ? idx+=16384;
+loop(look_n+1,
+  peak=max(peak,max(abs(LBASE[idx]),abs(RBASE[idx])));
+  idx+=1;idx>=16384?idx=0;
+);
+target=min(1,ceiling/max(peak,0.0000000001));
+// Instant gain decrease, exponential release. This ensures sample-peak ceiling.
+target<gain_env ? gain_env=target : gain_env=target+(gain_env-target)*rel_coeff;
+readpos=writepos-look_n;
+readpos<0 ? readpos+=16384;
+slider5 ? (
+  outl=LBASE[readpos]*gain_env;
+  outr=RBASE[readpos]*gain_env;
+  // Last-resort sample peak safety clamp (floating point tolerance).
+  outl=clamp(outl,-ceiling,ceiling);
+  outr=clamp(outr,-ceiling,ceiling);
+  spl0=outl;spl1=outr;
+  gr_now=-lin2db(gain_env);
+) : (
+  // Bypass preserves plugin latency and does not apply input gain.
+  spl0=LBASE[readpos]/max(in_gain,0.000001);
+  spl1=RBASE[readpos]/max(in_gain,0.000001);
+  gr_now=0;
+);
+meter_gr=max(gr_now,meter_gr*meter_coeff);
+meter_out=max(lin2db(max(abs(spl0),abs(spl1))),meter_out-0.08);
+writepos+=1;writepos>=16384?writepos=0;
+
+@gfx 790 390
+look_ms=slider4==0?1:slider4==1?2:slider4==2?3:5;
+rel_ms=slider3==0?50:slider3==1?100:slider3==2?200:slider3==3?400:slider3==4?800:200;
+function col(r,g,b) (gfx_set(r,g,b,1););
+function label(x,y,t) (gfx_x=x;gfx_y=y;gfx_drawstr(t););
+function knob(x,y,r,val,lo,hi) local(a) (
+  col(0.16,0.19,0.23);gfx_circle(x,y,r,1);
+  col(0.35,0.41,0.47);gfx_circle(x,y,r,0);
+  a=(-0.75+1.5*(val-lo)/(hi-lo))*$pi;
+  col(0.26,0.84,0.74);gfx_line(x,y,x+cos(a)*r*0.75,y+sin(a)*r*0.75,3);
+);
+col(0.065,0.08,0.105);gfx_rect(0,0,gfx_w,gfx_h);
+col(0.26,0.84,0.74);gfx_rect(0,0,gfx_w,5);
+gfx_setfont(1,"Arial",24,'b');col(0.95,0.97,0.99);label(24,20,"JMR AUDIO   /   BRICKWALL ONE");
+gfx_setfont(1,"Arial",13);col(0.56,0.62,0.68);label(25,56,"STEREO LOOKAHEAD  /  SAMPLE-PEAK LIMITER  /  v1.2");
+ui_i=0;
+loop(4,
+  x=104+ui_i*185;
+  ui_i==0 ? (v=slider1;lo=0;hi=18;nm="INPUT";)
+  : ui_i==1 ? (v=slider2;lo=-3;hi=0;nm="CEILING";)
+  : ui_i==2 ? (v=slider3;lo=0;hi=5;nm="RELEASE";)
+  : (v=slider4;lo=0;hi=3;nm="LOOKAHEAD";);
+  knob(x,153,34,v,lo,hi);
+  col(0.90,0.93,0.96);label(x-46,211,nm);
+  col(0.26,0.84,0.74);gfx_x=x-46;gfx_y=237;
+  ui_i==0 ? (gfx_drawnumber(slider1,1);gfx_drawstr(" dB");)
+  : ui_i==1 ? (gfx_drawnumber(slider2,1);gfx_drawstr(" dBFS");)
+  : ui_i==2 ? (slider3==5?gfx_drawstr("AUTO"):(gfx_drawnumber(rel_ms,0);gfx_drawstr(" ms");))
+  : (gfx_drawnumber(look_ms,0);gfx_drawstr(" ms"););
+  ui_i+=1;
+);
+col(0.13,0.16,0.19);gfx_rect(20,282,750,91);
+col(0.90,0.93,0.96);label(35,293,"GAIN REDUCTION");
+col(0.19,0.23,0.27);gfx_rect(192,295,395,18);
+col(0.26,0.84,0.74);gfx_rect(192,295,clamp(meter_gr/24,0,1)*395,18);
+col(0.90,0.93,0.96);gfx_x=600;gfx_y=295;gfx_drawnumber(meter_gr,1);gfx_drawstr(" dB");
+col(0.90,0.93,0.96);label(35,327,"OUTPUT PEAK");gfx_x=155;gfx_y=327;gfx_drawnumber(meter_out,1);gfx_drawstr(" dBFS");
+col(slider5 ? 0.26 : 0.65,slider5 ? 0.84 : 0.26,slider5 ? 0.74 : 0.26);
+gfx_rect(640,325,115,28);col(0.05,0.07,0.08);label(660,332,slider5 ? "ACTIVE" : "BYPASS");
+col(0.56,0.62,0.68);label(35,355,"DRAG UP / DOWN  |  SHIFT = FINE  |  SAMPLE PEAK, NOT TRUE PEAK");
+mouse_cap&1 ? (
+  !dragging ? (
+    dragging=1;drag_y=mouse_y;drag_idx=-1;
+    ui_i=0;loop(4,
+      x=104+ui_i*185;
+      abs(mouse_x-x)<53 && abs(mouse_y-153)<55 ? (
+        drag_idx=ui_i;
+        drag_value=ui_i==0?slider1:ui_i==1?slider2:ui_i==2?slider3:slider4;
+      );ui_i+=1;
+    );
+    mouse_x>=640 && mouse_x<=755 && mouse_y>=325 && mouse_y<=353 ? (slider5=1-slider5;sliderchange(16););
+  );
+  drag_idx>=0 ? (
+    delta=drag_y-mouse_y;fine=(mouse_cap&8)?0.1:1;
+    drag_idx==0 ? (slider1=clamp(floor((drag_value+delta*0.12*fine)*10+0.5)/10,0,18);sliderchange(1);)
+    : drag_idx==1 ? (slider2=clamp(floor((drag_value+delta*0.04*fine)*10+0.5)/10,-3,0);sliderchange(2);)
+    : drag_idx==2 ? (slider3=clamp(floor(drag_value+delta*0.04*fine+0.5),0,5);sliderchange(4);)
+    : (slider4=clamp(floor(drag_value+delta*0.04*fine+0.5),0,3);sliderchange(8););
+  );
+) : (dragging=0;drag_idx=-1;);

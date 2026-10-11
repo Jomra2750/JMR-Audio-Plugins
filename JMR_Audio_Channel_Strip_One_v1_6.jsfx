@@ -1,0 +1,320 @@
+desc:JMR Audio - Channel Strip One v1.6
+// Gate One v1.2 + EQ One v1.4 + Channel Comp v1.1
+// Vertical stack. Self-trigger sidechains. Stereo processing.
+slider1:-30<-80,0,1>-Gate Threshold
+slider2:0.2<0.05,10,0.05>-Gate Attack
+slider3:0<0,500,1>-Gate Hold
+slider4:180<10,1500,1>-Gate Release
+slider5:-60<-80,0,1>-Gate Range
+slider6:1<0,1,1{Active,Bypass}>-Gate Bypass
+slider7:0<0,1,1{Off,On}>-Gate SC HP
+slider8:100<50,500,50>-Gate SC HP Freq
+slider9:0<0,1,1{Off,On}>-Gate SC LP
+slider10:2000<200,16000,1>-Gate SC LP Freq
+slider11:5<0,11,1{30,40,50,60,80,100,120,150,200,250,300,400}>-EQ Low Freq
+slider12:0<-12,12,1>-EQ Low Gain
+slider13:5<0,9,1{100,150,200,300,400,500,700,1000,1500,2000}>-EQ Low Mid Freq
+slider14:0<-12,12,1>-EQ Low Mid Gain
+slider15:4<0,8,1{800,1000,1500,2000,3000,4000,5000,6000,8000}>-EQ High Mid Freq
+slider16:0<-12,12,1>-EQ High Mid Gain
+slider17:5<0,8,1{2000,3000,4000,5000,6000,8000,10000,12000,16000}>-EQ High Freq
+slider18:0<-12,12,1>-EQ High Gain
+slider19:1<0,1,1{Active,Bypass}>-EQ Bypass
+slider20:0<0,1,1{Off,On}>-EQ HP Enabled
+slider21:0<0,4,1{40,75,125,220,400}>-EQ HP Freq
+slider22:0<0,1,1{Bell,Shelf}>-EQ Low Shape
+slider23:0<0,1,1{Bell,Shelf}>-EQ High Shape
+slider24:-18<-40,0,0.1>-Comp Threshold
+slider25:3<0,6,1{1.5:1,2:1,3:1,4:1,6:1,8:1,10:1}>-Comp Ratio
+slider26:2<0,5,1{0.1,0.3,1,3,10,30}>-Comp Attack
+slider27:2<0,5,1{50,100,200,400,800,1600}>-Comp Release
+slider28:0<0,1,1{Hard,Soft}>-Comp Knee
+slider29:1<0,1,1{Off,On}>-Comp Auto Gain
+slider30:0<-12,12,0.1>-Comp Makeup
+slider31:0<0,5,1{Off,40,75,125,220,400}>-Comp SC HP
+slider32:0<0,1,1{Off,On}>-Comp Enabled
+slider33:0<0,1,1{EQ-Comp,Comp-EQ}>-Order
+slider34:0<-12,12,0.1>-Output Trim
+
+@init
+function db2lin(db) (exp(db*0.11512925464970229));
+function clamp(v,a,b) (max(a,min(b,v)));
+// Gate state and coefficient set
+function gate_recalc() local(w,c,si,a,inv) (
+ gt=db2lin(slider1); gclose=db2lin(slider1-3);
+ gatk=exp(-1/(max(0.05,slider2)*0.001*srate)); grel=exp(-1/(max(1,slider4)*0.001*srate));
+ gdetc=exp(-1/(0.001*srate)); ghold=slider3*0.001*srate; gfloor=db2lin(slider5);
+ w=2*$pi*min(slider8,srate*0.45)/srate;c=cos(w);si=sin(w);a=si*0.7071067811865476;inv=1/(1+a);
+ ghb0=(1+c)*0.5*inv;ghb1=-(1+c)*inv;ghb2=ghb0;gha1=-2*c*inv;gha2=(1-a)*inv;
+ w=2*$pi*min(slider10,srate*0.45)/srate;c=cos(w);si=sin(w);a=si*0.7071067811865476;inv=1/(1+a);
+ glb0=(1-c)*0.5*inv;glb1=(1-c)*inv;glb2=glb0;gla1=-2*c*inv;gla2=(1-a)*inv;
+);
+ggain=1;gdet=0;gopen=0;gholdleft=0;ggr=0;
+ghz1l=ghz2l=ghz1r=ghz2r=0;glz1l=glz2l=glz1r=glz2r=0;
+// EQ memory: dedicated 2048+ region, never shared with comp tables.
+eqc=2048; eqstl=2128;eqstr=2160;
+i=0;loop(12,eqstl[i]=0;eqstr[i]=0;i+=1;);
+eqlf=2200;eqlm=2220;eqhm=2240;eqhf=2260;eqhpf=2280;
+eqlf[0]=30;eqlf[1]=40;eqlf[2]=50;eqlf[3]=60;eqlf[4]=80;eqlf[5]=100;eqlf[6]=120;eqlf[7]=150;eqlf[8]=200;eqlf[9]=250;eqlf[10]=300;eqlf[11]=400;
+eqlm[0]=100;eqlm[1]=150;eqlm[2]=200;eqlm[3]=300;eqlm[4]=400;eqlm[5]=500;eqlm[6]=700;eqlm[7]=1000;eqlm[8]=1500;eqlm[9]=2000;
+eqhm[0]=800;eqhm[1]=1000;eqhm[2]=1500;eqhm[3]=2000;eqhm[4]=3000;eqhm[5]=4000;eqhm[6]=5000;eqhm[7]=6000;eqhm[8]=8000;
+eqhf[0]=2000;eqhf[1]=3000;eqhf[2]=4000;eqhf[3]=5000;eqhf[4]=6000;eqhf[5]=8000;eqhf[6]=10000;eqhf[7]=12000;eqhf[8]=16000;
+eqhpf[0]=40;eqhpf[1]=75;eqhpf[2]=125;eqhpf[3]=220;eqhpf[4]=400;
+// Separate amplitude and bandwidth variables (EEL2 names are case-insensitive).
+function eqbell(b,f,g,q) local(amp,w,cs,sn,alpha,den) (
+ f=max(10,min(f,srate*0.475));
+ amp=exp(log(10)*g/40);
+ w=2*$pi*f/srate;cs=cos(w);sn=sin(w);
+ alpha=sn/(2*q);den=1+alpha/amp;
+ b[0]=(1+alpha*amp)/den;
+ b[1]=-2*cs/den;
+ b[2]=(1-alpha*amp)/den;
+ b[3]=-2*cs/den;
+ b[4]=(1-alpha/amp)/den;
+);
+function eqshelf(b,f,g,high) local(A,w,c,s,alpha,beta,d) (
+ f=max(10,min(f,srate*0.475));A=exp(log(10)*g/40);w=2*$pi*f/srate;c=cos(w);s=sin(w);alpha=s*0.7071067811865476;beta=2*sqrt(A)*alpha;
+ high ? (
+ d=(A+1)-(A-1)*c+beta;
+ b[0]=A*((A+1)+(A-1)*c+beta)/d;
+ b[1]=-2*A*((A-1)+(A+1)*c)/d;
+ b[2]=A*((A+1)+(A-1)*c-beta)/d;
+ b[3]=2*((A-1)-(A+1)*c)/d;
+ b[4]=((A+1)-(A-1)*c-beta)/d;
+ ) : (
+ d=(A+1)+(A-1)*c+beta;
+ b[0]=A*((A+1)-(A-1)*c+beta)/d;
+ b[1]=2*A*((A-1)-(A+1)*c)/d;
+ b[2]=A*((A+1)-(A-1)*c-beta)/d;
+ b[3]=-2*((A-1)+(A+1)*c)/d;
+ b[4]=((A+1)+(A-1)*c-beta)/d;
+ );
+);
+function eqhp(b,f) local(w,c,s,a,d) (
+ w=2*$pi*max(10,min(f,srate*0.475))/srate;c=cos(w);s=sin(w);a=s/(2*0.7071067811865476);d=1+a;
+ b[0]=(1+c)*0.5/d;b[1]=-(1+c)/d;b[2]=b[0];b[3]=-2*c/d;b[4]=(1-a)/d;
+);
+function eqrun(b,st,x) local(y) (
+ y=b[0]*x+st[0];st[0]=b[1]*x-b[3]*y+st[1];st[1]=b[2]*x-b[4]*y;y;
+);
+function eq_recalc() (
+ slider22 ? eqshelf(eqc,eqlf[slider11|0],slider12,0) : eqbell(eqc,eqlf[slider11|0],slider12,1);
+ eqbell(eqc+8,eqlm[slider13|0],slider14,1);
+ eqbell(eqc+16,eqhm[slider15|0],slider16,1);
+ slider23 ? eqshelf(eqc+24,eqhf[slider17|0],slider18,1) : eqbell(eqc+24,eqhf[slider17|0],slider18,1);
+ eqhp(eqc+32,eqhpf[slider21|0]);
+);
+// Channel comp original lookup values in separate memory.
+crat=2400;catk=2420;crel=2440;chpf=2460;
+crat[0]=1.5;crat[1]=2;crat[2]=3;crat[3]=4;crat[4]=6;crat[5]=8;crat[6]=10;
+catk[0]=0.1;catk[1]=0.3;catk[2]=1;catk[3]=3;catk[4]=10;catk[5]=30;
+crel[0]=50;crel[1]=100;crel[2]=200;crel[3]=400;crel[4]=800;crel[5]=1600;
+chpf[0]=0;chpf[1]=40;chpf[2]=75;chpf[3]=125;chpf[4]=220;chpf[5]=400;
+cenv=0;cgr=0;chx1=chy1=chx2=chy2=0;clastsc=-1;clastsr=0;
+function comp_recalc() local(fc,w,cs,sn,a,d,refdb) (
+ cratio=crat[slider25|0];cattack=exp(-1/(max(0.1,catk[slider26|0])*0.001*srate));
+ crelease=exp(-1/(crel[slider27|0]*0.001*srate));cthreshold=slider24;
+ refdb=max(-18,cthreshold+6);
+ cauto=slider29 ? clamp((refdb-cthreshold)*(1-1/cratio)*0.65,0,12) : 0;
+ cmakeup=10^((slider30+cauto)/20);
+ (slider31!=clastsc || srate!=clastsr) ? (
+ fc=chpf[slider31|0];fc>0 ? (
+ w=2*$pi*min(fc,srate*0.45)/srate;cs=cos(w);sn=sin(w);a=sn/(2*0.70710678);d=1+a;
+ cb0=((1+cs)/2)/d;cb1=(-(1+cs))/d;cb2=cb0;ca1=(-2*cs)/d;ca2=(1-a)/d;
+ );
+ chx1=chy1=chx2=chy2=0;clastsc=slider31;clastsr=srate;
+ );
+);
+function gate_process() local(kl,kr,y,lev,target,k) (
+ slider6 < 0.5 ? (
+ kl=spl0;kr=spl1;
+ slider7 ? (
+ y=ghb0*kl+ghz1l;ghz1l=ghb1*kl-gha1*y+ghz2l;ghz2l=ghb2*kl-gha2*y;kl=y;
+ y=ghb0*kr+ghz1r;ghz1r=ghb1*kr-gha1*y+ghz2r;ghz2r=ghb2*kr-gha2*y;kr=y;
+ ) : (ghz1l=ghz2l=ghz1r=ghz2r=0;);
+ slider9 ? (
+ y=glb0*kl+glz1l;glz1l=glb1*kl-gla1*y+glz2l;glz2l=glb2*kl-gla2*y;kl=y;
+ y=glb0*kr+glz1r;glz1r=glb1*kr-gla1*y+glz2r;glz2r=glb2*kr-gla2*y;kr=y;
+ ) : (glz1l=glz2l=glz1r=glz2r=0;);
+ lev=max(abs(kl),abs(kr));gdet=lev>gdet ? lev : gdet*gdetc+(1-gdetc)*lev;
+ gopen ? (gdet<gclose ? (gholdleft<=0 ? gopen=0 : gholdleft-=1;) : gholdleft=ghold;)
+ : (gdet>=gt ? (gopen=1;gholdleft=ghold;););
+ target=gopen ? 1 : gfloor;k=target>ggain ? gatk : grel;
+ ggain=target+(ggain-target)*k;spl0*=ggain;spl1*=ggain;
+ ggr=20*log(max(ggain,0.000001))/log(10);
+ ) : (ggr=0;);
+);
+function eq_process() local(l,r) (
+ slider19 < 0.5 ? (
+ l=spl0;r=spl1;
+ slider20 ? (l=eqrun(eqc+32,eqstl+8,l);r=eqrun(eqc+32,eqstr+8,r););
+ l=eqrun(eqc,eqstl,l);r=eqrun(eqc,eqstr,r);
+ l=eqrun(eqc+8,eqstl+2,l);r=eqrun(eqc+8,eqstr+2,r);
+ l=eqrun(eqc+16,eqstl+4,l);r=eqrun(eqc+16,eqstr+4,r);
+ spl0=eqrun(eqc+24,eqstl+6,l);spl1=eqrun(eqc+24,eqstr+6,r);
+ );
+);
+function comp_process() local(det,level,indb,over,red,target,g,y) (
+ slider32 ? (
+ det=(spl0+spl1)*0.5;
+ slider31>0 ? (
+ y=cb0*det+cb1*chx1+cb2*chx2-ca1*chy1-ca2*chy2;
+ chx2=chx1;chx1=det;chy2=chy1;chy1=y;det=y;
+ );
+ level=abs(det);cenv=level>cenv ? cattack*cenv+(1-cattack)*level : crelease*cenv+(1-crelease)*level;
+ indb=20*log10(max(cenv,0.000000001));over=indb-cthreshold;
+ slider28 ? (red=over<=-3 ? 0 : over>=3 ? over*(1-1/cratio) : (over+3)^2/12*(1-1/cratio);)
+ : (red=max(0,over)*(1-1/cratio););
+ target=-red;g=10^(target/20)*cmakeup;spl0*=g;spl1*=g;
+ cgr+=(red-cgr)*0.003;
+ ) : (cgr*=0.999;);
+);
+gate_recalc();eq_recalc();comp_recalc();
+
+@slider
+gate_recalc();eq_recalc();comp_recalc();
+@block
+// Keep custom UI and automated parameters synchronized with DSP.
+gate_recalc();eq_recalc();comp_recalc();
+@sample
+gate_process();
+slider33 ? (comp_process();eq_process();) : (eq_process();comp_process(););
+spl0*=10^(slider34/20);spl1*=10^(slider34/20);
+
+@gfx 850 930
+function color(r,g,b) (gfx_set(r,g,b,1));
+function txt(x,y,s) (gfx_x=x;gfx_y=y;gfx_drawstr(s));
+function dial(x,y,val,lo,hi) local(a) (
+ color(0.16,0.19,0.23);gfx_circle(x,y,24,1);
+ color(0.35,0.41,0.47);gfx_circle(x,y,24,0);
+ a=(-0.75+1.5*clamp((val-lo)/max(0.00001,hi-lo),0,1))*$pi;
+ color(0.26,0.84,0.74);gfx_line(x,y,x+cos(a)*18,y+sin(a)*18,3);
+);
+function ctl(n,x,y,lo,hi,name,fmt) local(v) (
+ v=slider(n);dial(x,y,v,lo,hi);
+ color(0.87,0.92,0.96);txt(x-41,y+30,name);
+ color(0.53,0.84,0.79);gfx_x=x-38;gfx_y=y+47;
+ fmt==0 ? gfx_drawnumber(v,0) : fmt==1 ? gfx_drawnumber(v,1) : gfx_drawnumber(v,2);
+);
+function toggle(n,x,y,w,caption) (
+ slider(n) ? color(0.14,0.49,0.43) : color(0.26,0.29,0.34);
+ gfx_rect(x,y,w,29);color(0.96,0.97,0.98);txt(x+9,y+7,caption);
+);
+function section(y,name,subtitle) (
+ color(0.12,0.15,0.19);gfx_rect(18,y,814,9);
+ color(0.85,0.91,0.95);gfx_setfont(1,"Arial",19,'b');txt(28,y+16,name);
+ gfx_setfont(1,"Arial",12);color(0.54,0.61,0.68);txt(28,y+42,subtitle);
+);
+color(0.065,0.08,0.105);gfx_rect(0,0,gfx_w,gfx_h);
+color(0.26,0.84,0.74);gfx_rect(0,0,gfx_w,5);
+gfx_setfont(1,"Arial",24,'b');color(0.96,0.97,0.98);txt(25,16,"JMR AUDIO  /  CHANNEL STRIP ONE");
+gfx_setfont(1,"Arial",12);color(0.58,0.64,0.70);txt(25,53,"GATE  /  EQ  /  COMP     |     DRAG VERTICALLY  -  SHIFT = FINE");
+section(78,"GATE ONE","STEREO LINKED / SELF SIDECHAIN");
+slider6 == 0 ? color(0.14,0.49,0.43) : color(0.26,0.29,0.34);
+gfx_rect(695,97,112,29);color(0.96,0.97,0.98);txt(704,104,slider6 == 0 ? "GATE ON" : "GATE OFF");
+ctl(1,90,188,-80,0,"THRESH",0);ctl(2,230,188,0.05,10,"ATTACK",2);ctl(3,370,188,0,500,"HOLD",0);ctl(4,510,188,10,1500,"RELEASE",0);ctl(5,650,188,-80,0,"RANGE",0);
+toggle(7,45,252,105,slider7?"SC HP ON":"SC HP OFF");ctl(8,220,274,50,500,"SC HP Hz",0);
+toggle(9,335,252,105,slider9?"SC LP ON":"SC LP OFF");ctl(10,520,274,200,16000,"SC LP Hz",0);
+color(0.55,0.80,0.76);txt(672,264,"GATE GR");gfx_x=674;gfx_y=283;gfx_drawnumber(ggr,1);gfx_drawstr(" dB");
+color(0.12,0.16,0.20);gfx_rect(625,309,145,12);
+color(0.26,0.84,0.74);gfx_rect(625,309,145*min(30,abs(ggr))/30,12);
+section(338,"EQ ONE","FOUR BANDS / STEPPED FREQUENCIES & GAIN");
+slider19 == 0 ? color(0.14,0.49,0.43) : color(0.26,0.29,0.34);
+gfx_rect(695,355,112,29);color(0.96,0.97,0.98);txt(704,362,slider19 == 0 ? "EQ ON" : "EQ OFF");
+dial(100,444,slider11,0,11);color(0.87,0.92,0.96);txt(59,474,"LOW F");ctl(12,190,444,-12,12,"LOW dB",0);
+dial(285,444,slider13,0,9);color(0.87,0.92,0.96);txt(244,474,"LM F");ctl(14,375,444,-12,12,"LM dB",0);
+dial(470,444,slider15,0,8);color(0.87,0.92,0.96);txt(429,474,"HM F");ctl(16,560,444,-12,12,"HM dB",0);
+dial(655,444,slider17,0,8);color(0.87,0.92,0.96);txt(614,474,"HIGH F");ctl(18,745,444,-12,12,"HIGH dB",0);
+// Display real stepped frequencies below frequency knobs.
+color(0.12,0.15,0.19);gfx_rect(59,489,87,18);gfx_rect(244,489,87,18);gfx_rect(429,489,87,18);gfx_rect(614,489,87,18);
+color(0.53,0.84,0.79);
+gfx_x=70;gfx_y=489;gfx_drawnumber(eqlf[slider11|0],0);gfx_drawstr(" Hz");
+gfx_x=254;gfx_y=489;gfx_drawnumber(eqlm[slider13|0],0);gfx_drawstr(" Hz");
+gfx_x=438;gfx_y=489;gfx_drawnumber(eqhm[slider15|0],0);gfx_drawstr(" Hz");
+gfx_x=623;gfx_y=489;gfx_drawnumber(eqhf[slider17|0],0);gfx_drawstr(" Hz");
+toggle(22,40,545,120,slider22?"LOW SHELF":"LOW BELL");
+toggle(23,180,545,130,slider23?"HIGH SHELF":"HIGH BELL");
+toggle(20,340,545,100,slider20?"HP ON":"HP OFF");dial(525,565,slider21,0,4);color(0.87,0.92,0.96);txt(484,595,"HP F");
+color(0.53,0.84,0.79);gfx_x=566;gfx_y=558;gfx_drawnumber(eqhpf[slider21|0],0);gfx_drawstr(" Hz");
+section(619,"CHANNEL COMP","FEED-FORWARD / AUTO GAIN");
+toggle(32,695,637,112,slider32?"COMP ON":"COMP OFF");
+ctl(24,90,726,-40,0,"THRESH",1);ctl(25,220,726,0,6,"RATIO",0);
+ctl(26,350,726,0,5,"ATTACK",0);ctl(27,480,726,0,5,"RELEASE",0);
+ctl(30,610,726,-12,12,"MAKEUP",1);ctl(31,740,726,0,5,"SC HP",0);
+// Actual parameter values, not enum indices.
+color(0.12,0.15,0.19);gfx_rect(176,770,90,20);gfx_rect(307,770,90,20);gfx_rect(437,770,90,20);gfx_rect(698,770,95,20);
+color(0.53,0.84,0.79);
+gfx_x=190;gfx_y=771;gfx_drawnumber(crat[slider25|0],1);gfx_drawstr(":1");
+gfx_x=324;gfx_y=771;gfx_drawnumber(catk[slider26|0],1);gfx_drawstr(" ms");
+gfx_x=452;gfx_y=771;gfx_drawnumber(crel[slider27|0],0);gfx_drawstr(" ms");
+gfx_x=710;gfx_y=771;slider31 ? (gfx_drawnumber(chpf[slider31|0],0);gfx_drawstr(" Hz");) : gfx_drawstr("OFF");
+toggle(28,40,797,115,slider28?"SOFT KNEE":"HARD KNEE");
+toggle(29,170,797,135,slider29?"AUTO GAIN ON":"AUTO GAIN OFF");
+color(0.55,0.80,0.76);txt(350,802,"COMP GR");gfx_x=432;gfx_y=802;gfx_drawnumber(cgr,1);gfx_drawstr(" dB");
+color(0.12,0.16,0.20);gfx_rect(340,827,145,12);
+color(0.26,0.84,0.74);gfx_rect(340,827,145*min(30,abs(cgr))/30,12);
+color(0.12,0.15,0.19);gfx_rect(18,845,814,70);
+toggle(33,36,866,175,slider33?"COMP > EQ":"EQ > COMP");
+dial(320,881,slider34,-12,12);
+color(0.87,0.92,0.96);txt(365,871,"OUTPUT dB");
+color(0.53,0.84,0.79);gfx_x=365;gfx_y=890;gfx_drawnumber(slider34,1);gfx_drawstr(" dB");
+color(0.56,0.63,0.69);txt(510,866,"SHIFT + DRAG FOR FINE CONTROL");
+// Unified hit testing: parameter knobs and rectangular toggles.
+press=mouse_cap&1;shift=mouse_cap&8;
+press && !oldpress ? (
+ sel=0;
+ // Gate knobs
+ abs(mouse_y-188)<31 ? (
+ abs(mouse_x-90)<30 ? sel=1;
+ abs(mouse_x-230)<30 ? sel=2;
+ abs(mouse_x-370)<30 ? sel=3;
+ abs(mouse_x-510)<30 ? sel=4;
+ abs(mouse_x-650)<30 ? sel=5;
+ );
+ abs(mouse_y-274)<31 ? (abs(mouse_x-220)<30 ? sel=8;abs(mouse_x-520)<30 ? sel=10;);
+ abs(mouse_y-444)<31 ? (
+ abs(mouse_x-100)<30 ? sel=11;abs(mouse_x-190)<30 ? sel=12;
+ abs(mouse_x-285)<30 ? sel=13;abs(mouse_x-375)<30 ? sel=14;
+ abs(mouse_x-470)<30 ? sel=15;abs(mouse_x-560)<30 ? sel=16;
+ abs(mouse_x-655)<30 ? sel=17;abs(mouse_x-745)<30 ? sel=18;
+ );
+ abs(mouse_y-565)<31 && abs(mouse_x-525)<30 ? sel=21;
+ abs(mouse_y-726)<31 ? (
+ abs(mouse_x-90)<30 ? sel=24;abs(mouse_x-220)<30 ? sel=25;
+ abs(mouse_x-350)<30 ? sel=26;abs(mouse_x-480)<30 ? sel=27;
+ abs(mouse_x-610)<30 ? sel=30;abs(mouse_x-740)<30 ? sel=31;
+ );
+ abs(mouse_y-881)<31 && abs(mouse_x-320)<30 ? sel=34;
+ // Toggles (all parameter IDs fit JSFX sliderchange mask via sliderchange(-1)).
+ mouse_x>=695 && mouse_x<=807 && mouse_y>=97 && mouse_y<=126 ? slider6=1-slider6;
+ mouse_x>=45 && mouse_x<=150 && mouse_y>=252 && mouse_y<=281 ? slider7=1-slider7;
+ mouse_x>=335 && mouse_x<=440 && mouse_y>=252 && mouse_y<=281 ? slider9=1-slider9;
+ mouse_x>=695 && mouse_x<=807 && mouse_y>=355 && mouse_y<=384 ? slider19=1-slider19;
+ mouse_x>=40 && mouse_x<=160 && mouse_y>=545 && mouse_y<=574 ? slider22=1-slider22;
+ mouse_x>=180 && mouse_x<=310 && mouse_y>=545 && mouse_y<=574 ? slider23=1-slider23;
+ mouse_x>=340 && mouse_x<=440 && mouse_y>=545 && mouse_y<=574 ? slider20=1-slider20;
+ mouse_x>=695 && mouse_x<=807 && mouse_y>=637 && mouse_y<=666 ? slider32=1-slider32;
+ mouse_x>=40 && mouse_x<=155 && mouse_y>=797 && mouse_y<=826 ? slider28=1-slider28;
+ mouse_x>=170 && mouse_x<=305 && mouse_y>=797 && mouse_y<=826 ? slider29=1-slider29;
+ mouse_x>=36 && mouse_x<=211 && mouse_y>=866 && mouse_y<=895 ? slider33=1-slider33;
+ anchor_y=mouse_y;anchor_v=sel>0?slider(sel):0;
+ sliderchange(-1);
+);
+press && sel>0 ? (
+ // For discrete controls, drag in whole steps; continuous controls have fine shift.
+ discrete=(sel==8) || (sel>=11 && sel<=21) || sel==25 || sel==26 || sel==27 || sel==31;
+ lo=sel==1?-80:sel==2?0.05:sel==3?0:sel==4?10:sel==5?-80:sel==8?50:sel==10?200:
+ sel==11?0:sel==12?-12:sel==13?0:sel==14?-12:sel==15?0:sel==16?-12:sel==17?0:sel==18?-12:sel==21?0:
+ sel==24?-40:sel==25?0:sel==26?0:sel==27?0:sel==30?-12:sel==31?0:-12;
+ hi=sel==1?0:sel==2?10:sel==3?500:sel==4?1500:sel==5?0:sel==8?500:sel==10?16000:
+ sel==11?11:sel==12?12:sel==13?9:sel==14?12:sel==15?8:sel==16?12:sel==17?8:sel==18?12:sel==21?4:
+ sel==24?0:sel==25?6:sel==26?5:sel==27?5:sel==30?12:sel==31?5:12;
+ speed=sel==3?2:sel==4?5:sel==8?2.5:sel==10?50:sel==2?0.12:sel==24 || sel==30 || sel==34?0.12:discrete?0.13:0.35;
+ v=clamp(anchor_v+(anchor_y-mouse_y)*speed*(shift?0.1:1),lo,hi);
+ sel==8 ? v=50*floor(v/50+0.5) : discrete ? v=floor(v+0.5);
+ sel==1 || sel==3 || sel==4 || sel==5 || sel==10 ? v=floor(v+0.5);
+ sel==2 ? v=floor(v*100+0.5)/100;
+ slider(sel)=v;sliderchange(-1);
+);
+!press ? sel=0;
+oldpress=press;

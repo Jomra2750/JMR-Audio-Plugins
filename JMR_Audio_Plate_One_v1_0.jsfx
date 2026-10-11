@@ -1,0 +1,173 @@
+desc:JMR Audio - Plate One v1.0
+// JMR Audio Plate One: stereo diffuse algorithmic plate-style reverb (not hardware emulation)
+// Independent delay lines; all parameters available to REAPER automation.
+slider1:1.8<0.3,6,0.01>-Decay (s)
+slider2:18<0,100,1>-Pre-delay (ms)
+slider3:60<0,100,1>-Density (%)
+slider4:32<0,100,1>-Damping (%)
+slider5:82<0,100,1>-Diffusion (%)
+slider6:100<0,100,1>-Mix (%)
+slider7:0<0,5,1{Off,40,75,125,220,400}>-Wet HP
+slider8:0<0,6,1{Off,2000,4000,6000,8000,12000,16000}>-Wet LP
+
+@init
+// 12 fixed-size delay buffers: pre L/R, four combs L/R, two allpass L/R
+buflen = 16384;
+premax = 8192; // max pre-delay 85 ms at 96 kHz; clamped
+preL = 0; preR = 8192;
+combL0 = 16384; combL1 = 32768; combL2 = 49152; combL3 = 65536;
+combR0 = 81920; combR1 = 98304; combR2 = 114688; combR3 = 131072;
+apL0 = 147456; apL1 = 163840; apR0 = 180224; apR1 = 196608;
+i=0; loop(212992, i[0]=0; i+=1;);
+pp=0;
+p0=0;p1=0;p2=0;p3=0;q0=0;q1=0;q2=0;q3=0;
+a0=0;a1=0;b0=0;b1=0;
+d0=0;d1=0;d2=0;d3=0;e0=0;e1=0;e2=0;e3=0;
+hpl=0;hpr=0;hpxl=0;hpxr=0;lpl=0;lpr=0;
+// Plate-inspired short, staggered combs and longer diffusion allpasses.
+cl0=829;cl1=1013;cl2=1237;cl3=1423;
+cr0=877;cr1=1061;cr2=1283;cr3=1481;
+al0=347;al1=521;ar0=373;ar1=557;
+
+@slider
+pred = min(premax-1, floor(slider2*srate/1000));
+// Use lengths scaled to sample rate, bounded by allocated buffer capacity.
+scale = srate/44100;
+cl0=min(buflen-1,max(1,floor(829*scale)));cl1=min(buflen-1,max(1,floor(1013*scale)));
+cl2=min(buflen-1,max(1,floor(1237*scale)));cl3=min(buflen-1,max(1,floor(1423*scale)));
+cr0=min(buflen-1,max(1,floor(877*scale)));cr1=min(buflen-1,max(1,floor(1061*scale)));
+cr2=min(buflen-1,max(1,floor(1283*scale)));cr3=min(buflen-1,max(1,floor(1481*scale)));
+al0=min(buflen-1,max(1,floor(347*scale)));al1=min(buflen-1,max(1,floor(521*scale)));
+ar0=min(buflen-1,max(1,floor(373*scale)));ar1=min(buflen-1,max(1,floor(557*scale)));
+// Density adjusts effective feedback time while preserving delay buffers.
+roomfactor=0.85+slider3*0.003;
+t60=max(0.3,slider1);
+g0=pow(0.001,(cl0/srate)/(t60*roomfactor));
+g1=pow(0.001,(cl1/srate)/(t60*roomfactor));
+g2=pow(0.001,(cl2/srate)/(t60*roomfactor));
+g3=pow(0.001,(cl3/srate)/(t60*roomfactor));
+h0=pow(0.001,(cr0/srate)/(t60*roomfactor));
+h1=pow(0.001,(cr1/srate)/(t60*roomfactor));
+h2=pow(0.001,(cr2/srate)/(t60*roomfactor));
+h3=pow(0.001,(cr3/srate)/(t60*roomfactor));
+damp=0.10+slider4*0.007;
+apg=0.45+slider5*0.0035;
+wet=slider6/100; dry=1-wet;
+hpfreq=slider7==1?40:slider7==2?75:slider7==3?125:slider7==4?220:slider7==5?400:0;
+lpfreq=slider8==1?2000:slider8==2?4000:slider8==3?6000:slider8==4?8000:slider8==5?12000:slider8==6?16000:0;
+hpa=hpfreq>0?exp(-2*$pi*hpfreq/srate):0;
+lpa=lpfreq>0?exp(-2*$pi*lpfreq/srate):0;
+
+
+@block
+pred = min(premax-1, floor(slider2*srate/1000));
+// Use lengths scaled to sample rate, bounded by allocated buffer capacity.
+scale = srate/44100;
+cl0=min(buflen-1,max(1,floor(829*scale)));cl1=min(buflen-1,max(1,floor(1013*scale)));
+cl2=min(buflen-1,max(1,floor(1237*scale)));cl3=min(buflen-1,max(1,floor(1423*scale)));
+cr0=min(buflen-1,max(1,floor(877*scale)));cr1=min(buflen-1,max(1,floor(1061*scale)));
+cr2=min(buflen-1,max(1,floor(1283*scale)));cr3=min(buflen-1,max(1,floor(1481*scale)));
+al0=min(buflen-1,max(1,floor(347*scale)));al1=min(buflen-1,max(1,floor(521*scale)));
+ar0=min(buflen-1,max(1,floor(373*scale)));ar1=min(buflen-1,max(1,floor(557*scale)));
+// Density adjusts effective feedback time while preserving delay buffers.
+roomfactor=0.85+slider3*0.003;
+t60=max(0.3,slider1);
+g0=pow(0.001,(cl0/srate)/(t60*roomfactor));
+g1=pow(0.001,(cl1/srate)/(t60*roomfactor));
+g2=pow(0.001,(cl2/srate)/(t60*roomfactor));
+g3=pow(0.001,(cl3/srate)/(t60*roomfactor));
+h0=pow(0.001,(cr0/srate)/(t60*roomfactor));
+h1=pow(0.001,(cr1/srate)/(t60*roomfactor));
+h2=pow(0.001,(cr2/srate)/(t60*roomfactor));
+h3=pow(0.001,(cr3/srate)/(t60*roomfactor));
+damp=0.10+slider4*0.007;
+apg=0.45+slider5*0.0035;
+wet=slider6/100; dry=1-wet;
+hpfreq=slider7==1?40:slider7==2?75:slider7==3?125:slider7==4?220:slider7==5?400:0;
+lpfreq=slider8==1?2000:slider8==2?4000:slider8==3?6000:slider8==4?8000:slider8==5?12000:slider8==6?16000:0;
+hpa=hpfreq>0?exp(-2*$pi*hpfreq/srate):0;
+lpa=lpfreq>0?exp(-2*$pi*lpfreq/srate):0;
+
+@sample
+inl=spl0; inr=spl1;
+// Pre-delay circular buffers; read old samples before writing.
+preL[pp]=inl;preR[pp]=inr;
+readp=pp-pred; readp<0?readp+=premax;
+xL=pred>0?preL[readp]:inl;
+xR=pred>0?preR[readp]:inr;
+pp+=1;pp>=premax?pp=0;
+// Four parallel low-pass-feedback combs per channel.
+y0=combL0[p0];d0+=damp*(y0-d0);combL0[p0]=xL*0.18+g0*d0;p0+=1;p0>=cl0?p0=0;
+y1=combL1[p1];d1+=damp*(y1-d1);combL1[p1]=xL*0.18+g1*d1;p1+=1;p1>=cl1?p1=0;
+y2=combL2[p2];d2+=damp*(y2-d2);combL2[p2]=xL*0.18+g2*d2;p2+=1;p2>=cl2?p2=0;
+y3=combL3[p3];d3+=damp*(y3-d3);combL3[p3]=xL*0.18+g3*d3;p3+=1;p3>=cl3?p3=0;
+z0=combR0[q0];e0+=damp*(z0-e0);combR0[q0]=xR*0.18+h0*e0;q0+=1;q0>=cr0?q0=0;
+z1=combR1[q1];e1+=damp*(z1-e1);combR1[q1]=xR*0.18+h1*e1;q1+=1;q1>=cr1?q1=0;
+z2=combR2[q2];e2+=damp*(z2-e2);combR2[q2]=xR*0.18+h2*e2;q2+=1;q2>=cr2?q2=0;
+z3=combR3[q3];e3+=damp*(z3-e3);combR3[q3]=xR*0.18+h3*e3;q3+=1;q3>=cr3?q3=0;
+wL=y0+y1+y2+y3;
+wR=z0+z1+z2+z3;
+// Two serial allpasses per channel.
+t=apL0[a0];v=wL-apg*t;apL0[a0]=v;wL=t+apg*v;a0+=1;a0>=al0?a0=0;
+t=apL1[a1];v=wL-apg*t;apL1[a1]=v;wL=t+apg*v;a1+=1;a1>=al1?a1=0;
+t=apR0[b0];v=wR-apg*t;apR0[b0]=v;wR=t+apg*v;b0+=1;b0>=ar0?b0=0;
+t=apR1[b1];v=wR-apg*t;apR1[b1]=v;wR=t+apg*v;b1+=1;b1>=ar1?b1=0;
+// Wet-only first-order HP and LP filters.
+hpfreq>0 ? (
+  hpl=hpa*(hpl+wL-hpxl);hpxl=wL;wL=hpl;
+  hpr=hpa*(hpr+wR-hpxr);hpxr=wR;wR=hpr;
+);
+lpfreq>0 ? (
+  lpl=(1-lpa)*wL+lpa*lpl;wL=lpl;
+  lpr=(1-lpa)*wR+lpa*lpr;wR=lpr;
+);
+spl0=dry*inl+wet*wL;
+spl1=dry*inr+wet*wR;
+
+@gfx 720 410
+function drawcontrol(idx,x,y,w,label,value) local(f,v) (
+  gfx_set(0.17,0.20,0.24,1);gfx_rect(x,y+25,w,8);
+  f=idx==0?slider1:idx==1?slider2:idx==2?slider3:idx==3?slider4:idx==4?slider5:idx==5?slider6:idx==6?slider7:slider8;
+  v=idx==0?(f-0.3)/5.7:idx==1?f/100:idx<=5?f/100:idx==6?f/5:f/6;
+  gfx_set(0.15,0.80,0.77,1);gfx_rect(x,y+25,w*v,8);
+  gfx_set(0.91,0.94,0.96,1);gfx_x=x;gfx_y=y;gfx_drawstr(label);
+  gfx_x=x+w-90;gfx_y=y;gfx_drawstr(value,5,x+w,y+19);
+);
+gfx_set(0.075,0.09,0.12,1);gfx_rect(0,0,gfx_w,gfx_h);
+gfx_set(0.16,0.80,0.76,1);gfx_setfont(1,"Arial",27,'b');gfx_x=26;gfx_y=18;gfx_drawstr("JMR AUDIO");
+gfx_set(0.90,0.93,0.96,1);gfx_setfont(2,"Arial",19,'b');gfx_x=27;gfx_y=62;gfx_drawstr("PLATE ONE");
+gfx_setfont(3,"Arial",13);
+gfx_set(0.60,0.67,0.73,1);gfx_x=27;gfx_y=91;gfx_drawstr("STEREO ALGORITHMIC PLATE-STYLE REVERB");
+drawcontrol(0,27,139,310,"DECAY",sprintf(#display,"%.2f s",slider1));
+drawcontrol(1,385,139,310,"PRE-DELAY",sprintf(#display,"%.0f ms",slider2));
+drawcontrol(2,27,202,310,"DENSITY",sprintf(#display,"%.0f %%",slider3));
+drawcontrol(3,385,202,310,"DAMPING",sprintf(#display,"%.0f %%",slider4));
+drawcontrol(4,27,265,310,"DIFFUSION",sprintf(#display,"%.0f %%",slider5));
+drawcontrol(5,385,265,310,"MIX",sprintf(#display,"%.0f %%",slider6));
+drawcontrol(6,27,328,310,"WET HP",slider7==0?"OFF":sprintf(#display,"%.0f Hz",hpfreq));
+drawcontrol(7,385,328,310,"WET LP",slider8==0?"OFF":sprintf(#display,"%.0f Hz",lpfreq));
+gfx_set(0.50,0.56,0.62,1);gfx_x=27;gfx_y=385;gfx_drawstr("Drag bars to adjust  |  Hold SHIFT for fine adjustment");
+// Dragging across each bar updates one hidden slider.
+(mouse_cap&1) && !(lastmouse&1) ? (
+  drag=-1;
+  mouse_y>=135 && mouse_y<190 ? (mouse_x<360?drag=0:drag=1;);
+  mouse_y>=198 && mouse_y<253 ? (mouse_x<360?drag=2:drag=3;);
+  mouse_y>=261 && mouse_y<316 ? (mouse_x<360?drag=4:drag=5;);
+  mouse_y>=324 && mouse_y<380 ? (mouse_x<360?drag=6:drag=7;);
+);
+(mouse_cap&1) && drag>=0 ? (
+  x0=(drag%2)==0?27:385;
+  n=max(0,min(1,(mouse_x-x0)/310));
+  (mouse_cap&8) ? (n= floor(n*100)/100;);
+  drag==0?(slider1=0.3+n*5.7;sliderchange(1<<0));
+  drag==1?(slider2=floor(n*100+0.5);sliderchange(1<<1));
+  drag==2?(slider3=floor(n*100+0.5);sliderchange(1<<2));
+  drag==3?(slider4=floor(n*100+0.5);sliderchange(1<<3));
+  drag==4?(slider5=floor(n*100+0.5);sliderchange(1<<4));
+  drag==5?(slider6=floor(n*100+0.5);sliderchange(1<<5));
+  drag==6?(slider7=floor(n*5+0.5);sliderchange(1<<6));
+  drag==7?(slider8=floor(n*6+0.5);sliderchange(1<<7));
+  // @block refreshes DSP parameters after UI changes.
+);
+!(mouse_cap&1)?drag=-1;
+lastmouse=mouse_cap;

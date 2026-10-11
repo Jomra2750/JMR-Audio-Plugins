@@ -1,0 +1,181 @@
+desc:JMR Audio - Tap Delay One v1.5
+// JMR Audio | Open. Adjust. Mix.
+// TAP is a real clickable control in the custom UI.
+// Stereo: right echoes offset by half a tapped beat for audible width, even with mono sources.
+// Insert on an FX send: 100% wet by default.
+
+slider1:35<0,95,1>-Feedback (%)
+slider2:100<0,100,1>-Mix (%)
+slider3:1<0,2,1{Mono,Stereo,Ping Pong}>-Mode
+slider4:500<100,2000,1>-Delay (ms)
+slider5:0<0,1,1{Ready,Tap}>-TAP fallback (toggle on beats)
+
+@init
+maxsize = ceil(srate*5)+16;
+bufL=0;
+bufR=maxsize;
+memset(bufL,0,maxsize*2);
+writepos=0;
+delayms=slider4;
+targetL=delayms*0.001*srate;
+targetR=targetL*0.5;
+oldL=targetL;
+oldR=targetR;
+xfade=1;
+xfade_step=1/(srate*0.035);
+taplast=-1;
+tapnum=0;
+tap1=tap2=tap3=0;
+lasttapcontrol=slider5;
+waspressed=0;
+mouse_was_down=0;
+activecontrol=0;
+function clamp(x,a,b) ( max(a,min(b,x)); );
+function update_time(ms) local(nl,nr) (
+  nl=clamp(ms*0.001*srate,1,maxsize-8);
+  nr=slider3==1 ? max(1,nl*0.5) : nl;
+  abs(nl-targetL)>0.5 || abs(nr-targetR)>0.5 ? (
+    oldL=targetL;
+    oldR=targetR;
+    targetL=nl;
+    targetR=nr;
+    xfade=0;
+  );
+);
+function tap() local(t,d,avg) (
+  t=time_precise();
+  d=t-taplast;
+  taplast<0 || d>2.5 || d<0 ? (
+    tapnum=0;
+  ) : d>=0.15 ? (
+    tap3=tap2;
+    tap2=tap1;
+    tap1=d;
+    tapnum=min(tapnum+1,3);
+    avg=tapnum==1 ? tap1 : tapnum==2 ? (tap1+tap2)*0.5 : (tap1+tap2+tap3)/3;
+    delayms=clamp(avg*1000,100,2000);
+    slider4=floor(delayms+0.5);
+    sliderchange(1<<3);
+    update_time(delayms);
+  );
+  taplast=t;
+);
+function readtap(base,delay) local(pos,i,j,frac) (
+  pos=writepos-delay;
+  pos<0 ? pos+=maxsize;
+  i=floor(pos);
+  frac=pos-i;
+  j=i+1;
+  j>=maxsize ? j=0;
+  base[i]*(1-frac)+base[j]*frac;
+);
+
+@slider
+feedback=slider1*0.01;
+wet=slider2*0.01;
+slider5!=lasttapcontrol ? (
+  tap();
+  lasttapcontrol=slider5;
+);
+abs(slider4-delayms)>0.5 ? delayms=slider4;
+update_time(delayms);
+
+@sample
+inL=spl0;
+inR=spl1;
+dL=readtap(bufL,targetL);
+dR=readtap(bufR,targetR);
+xfade<1 ? (
+  oL=readtap(bufL,oldL);
+  oR=readtap(bufR,oldR);
+  dL=oL*(1-xfade)+dL*xfade;
+  dR=oR*(1-xfade)+dR*xfade;
+  xfade=min(1,xfade+xfade_step);
+);
+slider3==0 ? (
+  m=(inL+inR)*0.5;
+  echo=(dL+dR)*0.5;
+  bufL[writepos]=m+echo*feedback;
+  bufR[writepos]=m+echo*feedback;
+  dL=echo;
+  dR=echo;
+) : slider3==1 ? (
+  // Different echo times give true stereo delay even for a mono guitar input.
+  bufL[writepos]=inL+dL*feedback;
+  bufR[writepos]=inR+dR*feedback;
+) : (
+  // Seed the first echo on the left, then cross-feedback alternates L/R.
+  // A mono source otherwise enters both channels equally and cancels the ping-pong effect.
+  pingIn=(inL+inR)*0.5;
+  bufL[writepos]=pingIn+dR*feedback;
+  bufR[writepos]=dL*feedback;
+);
+writepos+=1;
+writepos>=maxsize ? writepos=0;
+spl0=inL*(1-wet)+dL*wet;
+spl1=inR*(1-wet)+dR*wet;
+
+@gfx 530 340
+// Custom JMR dark UI. Mouse click the large TAP pad; knob values use REAPER sliders.
+gfx_set(0.065,0.075,0.09,1); gfx_rect(0,0,gfx_w,gfx_h);
+gfx_set(0.09,0.11,0.13,1); gfx_rect(14,14,gfx_w-28,gfx_h-28);
+gfx_setfont(1,"Arial",23);
+gfx_set(0.89,0.93,0.95,1); gfx_x=29; gfx_y=26; gfx_drawstr("JMR AUDIO");
+gfx_setfont(2,"Arial",15);
+gfx_set(0.24,0.83,0.80,1); gfx_x=30; gfx_y=62; gfx_drawstr("TAP DELAY ONE");
+gfx_set(0.17,0.23,0.27,1); gfx_rect(28,95,gfx_w-56,1);
+
+bx=29; by=117; bw=236; bh=127;
+hover = mouse_x>=bx && mouse_x<bx+bw && mouse_y>=by && mouse_y<by+bh;
+down = (mouse_cap&1)!=0;
+hover && down && !mouse_was_down ? ( tap(); slider5 = 1-slider5; lasttapcontrol = slider5; sliderchange(1<<4); );
+gfx_set(hover ? 0.13 : 0.10,hover ? 0.38 : 0.30,hover ? 0.38 : 0.33,1);
+gfx_rect(bx,by,bw,bh);
+gfx_set(0.26,0.85,0.81,1); gfx_rect(bx,by,bw,3);
+gfx_setfont(1,"Arial",34); gfx_set(0.93,0.98,0.97,1);
+gfx_x=bx+78; gfx_y=by+34; gfx_drawstr("TAP");
+gfx_setfont(2,"Arial",13); gfx_set(0.57,0.75,0.75,1);
+gfx_x=bx+48; gfx_y=by+92; gfx_drawstr("CLICK TO SET TEMPO");
+
+panel_x=285;
+gfx_set(0.07,0.09,0.11,1); gfx_rect(panel_x,117,216,127);
+gfx_setfont(2,"Arial",13); gfx_set(0.57,0.69,0.72,1);
+gfx_x=panel_x+16; gfx_y=131; gfx_drawstr("DELAY TIME");
+gfx_setfont(1,"Arial",27); gfx_set(0.94,0.96,0.96,1);
+gfx_x=panel_x+16; gfx_y=159;
+display_ms = delayms;
+sprintf(#ms,"%.0f ms",display_ms); gfx_drawstr(#ms);
+gfx_setfont(2,"Arial",15); gfx_set(0.26,0.83,0.79,1);
+gfx_x=panel_x+16; gfx_y=204;
+sprintf(#bpm,"%.1f BPM",60000/display_ms); gfx_drawstr(#bpm);
+
+// Direct, clickable controls below the TAP pad.
+gfx_set(0.17,0.23,0.27,1); gfx_rect(28,257,gfx_w-56,1);
+// Slider tracks are clickable and draggable.
+mouse_x>=30 && mouse_x<=191 && mouse_y>=272 && mouse_y<=310 && down ? (
+  slider1 = floor(clamp((mouse_x-34)/153*95,0,95)+0.5);
+  sliderchange(1<<0);
+);
+mouse_x>=198 && mouse_x<=359 && mouse_y>=272 && mouse_y<=310 && down ? (
+  slider2 = floor(clamp((mouse_x-202)/153*100,0,100)+0.5);
+  sliderchange(1<<1);
+);
+mouse_x>=375 && mouse_x<=501 && mouse_y>=271 && mouse_y<=310 && down && !mouse_was_down ? (
+  slider3 = (slider3+1)%3;
+  sliderchange(1<<2); update_time(delayms);
+);
+gfx_setfont(2,"Arial",12);
+gfx_set(0.84,0.9,0.91,1);
+gfx_x=33; gfx_y=265; sprintf(#f,"FEEDBACK  %d%%",slider1); gfx_drawstr(#f);
+gfx_x=201; gfx_y=265; sprintf(#m,"MIX  %d%%",slider2); gfx_drawstr(#m);
+gfx_x=377; gfx_y=265; gfx_drawstr("MODE");
+gfx_set(0.14,0.18,0.20,1); gfx_rect(34,292,153,6); gfx_rect(202,292,153,6);
+gfx_set(0.24,0.83,0.80,1); gfx_rect(34,292,153*slider1/95,6); gfx_rect(202,292,153*slider2/100,6);
+gfx_set(0.18,0.45,0.43,1);
+gfx_rect(375,289,126,19);
+gfx_setfont(2,"Arial",11); gfx_set(0.93,0.96,0.95,1);
+gfx_x=396; gfx_y=291; gfx_drawstr(slider3 == 0 ? "MONO" : slider3 == 1 ? "STEREO" : "PING PONG");
+gfx_setfont(2,"Arial",11); gfx_set(0.47,0.56,0.60,1);
+gfx_x=30; gfx_y=316; gfx_drawstr("Open. Adjust. Mix.");
+
+mouse_was_down=down;

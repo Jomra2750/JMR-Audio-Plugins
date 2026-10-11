@@ -1,0 +1,169 @@
+desc:JMR Audio - Bass Driver One v1.3
+// Original bass preamp: preserved clean low end + filtered harmonic growl.
+// Custom UI; no hardware emulation. Experimental JSFX v1.3.
+
+slider1:40<0,100,1>-Drive
+slider2:1<0,2,1{Smooth,Growl,Aggressive}>-Character
+slider3:65<0,100,1>-Blend (%)
+slider4:0<-12,12,0.5>-Low (dB)
+slider5:0<-12,12,0.5>-Mid (dB)
+slider6:0<-12,12,0.5>-High (dB)
+slider7:0<-18,12,0.5>-Output (dB)
+slider8:1<0,1,1{Bypass,On}>-Preamp
+slider9:1<0,1,1{Off,On}>-Auto Gain
+
+@init
+function limit(v,lo,hi) (max(lo,min(hi,v)));
+function dbamp(db) (10^(db/20));
+function softclip(x) (x / (1 + abs(x)));
+// First order split and tone controls: low, broad mid presence, high.
+function refresh() (
+  splitcoef=exp(-2*$pi*120/srate);
+  precoef=exp(-2*$pi*5000/srate);
+  postcoef=exp(-2*$pi*4700/srate);
+  tonecoef=exp(-2*$pi*800/srate);
+  aircoef=exp(-2*$pi*3200/srate);
+  lowgain=dbamp(slider4);
+  midgain=dbamp(slider5);
+  highgain=dbamp(slider6);
+  outputgain=dbamp(slider7);
+  mix=slider3*0.01;
+  drivegain=1.5+slider1*0.13;
+  // Higher character setting changes curvature and upper-mid bite, not full fuzz.
+  bias=slider2==0 ? 0.04 : slider2==1 ? 0.13 : 0.21;
+  bite=slider2==0 ? 0.65 : slider2==1 ? 0.9 : 1.1;
+  // Static approximate loudness compensation; Output remains user-adjustable.
+  drivecomp=1.0;
+);
+refresh();
+levelcoef=exp(-1/(0.45*srate));
+gaincoef=exp(-1/(0.35*srate));
+autogain=1;
+
+@slider
+refresh();
+
+
+@sample
+// Explicitly synchronize GUI slider edits to the audio processing path.
+(slider1 != last1 || slider2 != last2 || slider3 != last3 ||
+ slider4 != last4 || slider5 != last5 || slider6 != last6 ||
+ slider7 != last7 || slider8 != last8 || slider9 != last9) ? (
+  refresh();
+  last1=slider1;last2=slider2;last3=slider3;last4=slider4;
+  last5=slider5;last6=slider6;last7=slider7;last8=slider8;last9=slider9;
+);
+slider8 ? (
+  // Store original signal before any processing.
+  inL=spl0; inR=spl1;
+  // Independent state for each channel. Low fundamentals remain clean.
+  lowL=splitcoef*lowL+(1-splitcoef)*inL;
+  lowR=splitcoef*lowR+(1-splitcoef)*inR;
+  upperL=inL-lowL;
+  upperR=inR-lowR;
+  preL=precoef*preL+(1-precoef)*upperL;
+  preR=precoef*preR+(1-precoef)*upperR;
+  // Bounded asymmetric waveshaping with DC offset removed analytically.
+  shapedL=softclip((preL*bite)*drivegain+bias)-softclip(bias);
+  shapedR=softclip((preR*bite)*drivegain+bias)-softclip(bias);
+  shapedL*=1.5;
+  shapedR*=1.5;
+  // Roll off very high generated harmonics to reduce harshness.
+  postL=postcoef*postL+(1-postcoef)*shapedL;
+  postR=postcoef*postR+(1-postcoef)*shapedR;
+  // Broad three-zone tonal shaping, applied to processed path.
+  toneLowL=tonecoef*toneLowL+(1-tonecoef)*postL;
+  toneLowR=tonecoef*toneLowR+(1-tonecoef)*postR;
+  toneAirL=aircoef*toneAirL+(1-aircoef)*postL;
+  toneAirR=aircoef*toneAirR+(1-aircoef)*postR;
+  coloredL=toneLowL*lowgain+(toneAirL-toneLowL)*midgain+(postL-toneAirL)*highgain;
+  coloredR=toneLowR*lowgain+(toneAirR-toneLowR)*midgain+(postR-toneAirR)*highgain;
+  // Blend between original DI and processed bass, clean lows added to drive path.
+  wetL=lowL+coloredL;
+  wetR=lowR+coloredR;
+  mixL=inL*(1-mix)+wetL*mix;
+  mixR=inR*(1-mix)+wetR*mix;
+  // Stereo-linked, slow RMS level matching against the original DI.
+  // Compensation is bounded to avoid extreme gains on quiet passages.
+  drypow=levelcoef*drypow+(1-levelcoef)*0.5*(inL*inL+inR*inR);
+  wetpow=levelcoef*wetpow+(1-levelcoef)*0.5*(mixL*mixL+mixR*mixR);
+  targetgain=sqrt((drypow+0.00000001)/(wetpow+0.00000001));
+  targetgain=limit(targetgain,0.35,2.8);
+  autogain=gaincoef*autogain+(1-gaincoef)*targetgain;
+  appliedgain=slider9 ? autogain : 1;
+  spl0=mixL*appliedgain*outputgain;
+  spl1=mixR*appliedgain*outputgain;
+);
+
+@gfx 760 320
+function drawknob(x,y,val,lo,hi,label,value) local(t,ang) (
+  gfx_set(0.13,0.17,0.21,1);gfx_circle(x,y,29,1);
+  gfx_set(0.27,0.33,0.39,1);gfx_circle(x,y,23,1);
+  t=limit((val-lo)/max(0.001,hi-lo),0,1);
+  ang=(-0.75+1.5*t)*$pi;
+  gfx_set(0.24,0.86,0.75,1);gfx_line(x,y,x+21*sin(ang),y-21*cos(ang),3);
+  gfx_set(0.93,0.95,0.97,1);gfx_x=x-43;gfx_y=y+37;gfx_drawstr(label);
+  gfx_set(0.45,0.91,0.81,1);gfx_x=x-43;gfx_y=y+54;gfx_drawstr(value);
+);
+function button(x,y,w,h,label,active) (
+  active ? gfx_set(0.10,0.40,0.35,1) : gfx_set(0.22,0.26,0.30,1);
+  gfx_rect(x,y,w,h);
+  gfx_set(0.95,0.97,0.97,1);gfx_x=x+11;gfx_y=y+10;gfx_drawstr(label);
+);
+function near(x,y,cx,cy) (abs(x-cx)<37 && abs(y-cy)<37);
+
+gfx_set(0.07,0.09,0.12,1);gfx_rect(0,0,gfx_w,gfx_h);
+gfx_set(0.19,0.86,0.75,1);gfx_x=22;gfx_y=16;gfx_drawstr("JMR AUDIO  /  BASS DRIVER ONE");
+gfx_set(0.57,0.64,0.69,1);gfx_x=22;gfx_y=40;gfx_drawstr("BASS PREAMP  |  CLEAN FUNDAMENTALS + HARMONIC GROWL  |  V1.3");
+drawknob(78,119,slider1,0,100,"DRIVE",sprintf(#v,"%.0f %%",slider1));
+drawknob(190,119,slider2,0,2,"CHARACTER",slider2==0 ? "SMOOTH" : slider2==1 ? "GROWL" : "AGGRESSIVE");
+drawknob(302,119,slider3,0,100,"BLEND",sprintf(#v,"%.0f %%",slider3));
+drawknob(414,119,slider4,-12,12,"LOW",sprintf(#v,"%+.1f dB",slider4));
+drawknob(526,119,slider5,-12,12,"MID",sprintf(#v,"%+.1f dB",slider5));
+drawknob(638,119,slider6,-12,12,"HIGH",sprintf(#v,"%+.1f dB",slider6));
+drawknob(78,242,slider7,-18,12,"OUTPUT",sprintf(#v,"%+.1f dB",slider7));
+button(192,214,147,38,slider8 ? "PREAMP: ON" : "PREAMP: BYPASS",slider8);
+button(355,214,140,38,slider9 ? "AUTO GAIN: ON" : "AUTO GAIN: OFF",slider9);
+gfx_set(0.66,0.74,0.78,1);gfx_x=515;gfx_y=226;gfx_drawstr("DRAG / SHIFT FINE");
+gfx_set(0.46,0.53,0.58,1);gfx_x=355;gfx_y=267;gfx_drawstr("DI BASS IN  >  JMR GROWL  >  OUTPUT");
+
+pressed=mouse_cap&1;
+fine=mouse_cap&8;
+pressed && !waspressed ? (
+  chosen=0;
+  near(mouse_x,mouse_y,78,119) ? chosen=1;
+  near(mouse_x,mouse_y,190,119) ? chosen=2;
+  near(mouse_x,mouse_y,302,119) ? chosen=3;
+  near(mouse_x,mouse_y,414,119) ? chosen=4;
+  near(mouse_x,mouse_y,526,119) ? chosen=5;
+  near(mouse_x,mouse_y,638,119) ? chosen=6;
+  near(mouse_x,mouse_y,78,242) ? chosen=7;
+  mouse_x>=192 && mouse_x<=339 && mouse_y>=214 && mouse_y<=252 ? (
+    slider8=1-slider8;sliderchange(1<<7);refresh();
+  );
+  mouse_x>=355 && mouse_x<=495 && mouse_y>=214 && mouse_y<=252 ? (
+    slider9=1-slider9;sliderchange(1<<8);
+  );
+  anchorY=mouse_y;
+  chosen==1 ? anchorV=slider1;
+  chosen==2 ? anchorV=slider2;
+  chosen==3 ? anchorV=slider3;
+  chosen==4 ? anchorV=slider4;
+  chosen==5 ? anchorV=slider5;
+  chosen==6 ? anchorV=slider6;
+  chosen==7 ? anchorV=slider7;
+);
+pressed && chosen>0 ? (
+  delta=(anchorY-mouse_y)*(fine ? 0.025 : 0.2);
+  chosen==1 ? (slider1=limit(floor(anchorV+delta+0.5),0,100);sliderchange(1<<0));
+  chosen==2 ? (slider2=limit(floor(anchorV+delta*0.1+0.5),0,2);sliderchange(1<<1));
+  chosen==3 ? (slider3=limit(floor(anchorV+delta+0.5),0,100);sliderchange(1<<2));
+  chosen==4 ? (slider4=limit(floor((anchorV+delta)*2+0.5)/2,-12,12);sliderchange(1<<3));
+  chosen==5 ? (slider5=limit(floor((anchorV+delta)*2+0.5)/2,-12,12);sliderchange(1<<4));
+  chosen==6 ? (slider6=limit(floor((anchorV+delta)*2+0.5)/2,-12,12);sliderchange(1<<5));
+  chosen==7 ? (slider7=limit(floor((anchorV+delta)*2+0.5)/2,-18,12);sliderchange(1<<6));
+  // Custom gfx changes need to update DSP coefficients immediately.
+  refresh();
+);
+!pressed ? chosen=0;
+waspressed=pressed;

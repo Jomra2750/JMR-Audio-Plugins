@@ -1,0 +1,243 @@
+desc:JMR Audio - Master EQ One v1.1
+// Six independent parametric bands; low/high optionally shelving; 40 Hz HP and 17 kHz LP.
+// Stereo; no analog emulation; biquad DSP.
+options:no_meter
+
+slider1:80<20,400,1>-LOW Frequency (Hz)
+slider2:0<-6,6,0.25>-LOW Gain (dB)
+slider3:1<0.5,5,0.5>-LOW Q
+slider4:0<0,1,1{Bell,Shelf}-LOW Shape
+slider5:250<60,1200,1>-LOW MID Frequency (Hz)
+slider6:0<-6,6,0.25>-LOW MID Gain (dB)
+slider7:1<0.5,5,0.5>-LOW MID Q
+slider8:0<0,1,1{Bell,Shelf}-LOW MID Shape
+slider9:750<150,3000,1>-MID 1 Frequency (Hz)
+slider10:0<-6,6,0.25>-MID 1 Gain (dB)
+slider11:1<0.5,5,0.5>-MID 1 Q
+slider12:0<0,1,1{Bell,Shelf}-MID 1 Shape
+slider13:2000<400,6000,1>-MID 2 Frequency (Hz)
+slider14:0<-6,6,0.25>-MID 2 Gain (dB)
+slider15:1<0.5,5,0.5>-MID 2 Q
+slider16:0<0,1,1{Bell,Shelf}-MID 2 Shape
+slider17:5000<1000,12000,1>-HIGH MID Frequency (Hz)
+slider18:0<-6,6,0.25>-HIGH MID Gain (dB)
+slider19:1<0.5,5,0.5>-HIGH MID Q
+slider20:0<0,1,1{Bell,Shelf}-HIGH MID Shape
+slider21:12000<3000,19000,1>-HIGH Frequency (Hz)
+slider22:0<-6,6,0.25>-HIGH Gain (dB)
+slider23:1<0.5,5,0.5>-HIGH Q
+slider24:0<0,1,1{Bell,Shelf}-HIGH Shape
+slider25:0<0,1,1{Off,On}>-HP 40 Hz
+slider26:0<0,1,1{Off,On}>-LP 17000 Hz
+slider27:0<-6,6,0.1>-Output Trim (dB)
+
+@init
+function biquad(base,state,x) local(y) (
+  y=base[0]*x+state[0];
+  state[0]=base[1]*x-base[3]*y+state[1];
+  state[1]=base[2]*x-base[4]*y;
+  y;
+);
+function setcoeff(base,typ,f,g,q) local(w,cs,sn,A,alpha,sqrtA,b0,b1,b2,a0,a1,a2,beta) (
+  f=max(10,min(f,srate*0.475));
+  w=2*$pi*f/srate; cs=cos(w); sn=sin(w);
+  A=exp(log(10)*g/40); alpha=sn/(2*q); sqrtA=sqrt(A);
+  typ==0 ? (
+    b0=1+alpha*A; b1=-2*cs; b2=1-alpha*A;
+    a0=1+alpha/A; a1=-2*cs; a2=1-alpha/A;
+  ) : typ==1 ? (
+    // RBJ low shelf, fixed shelf slope S=1.
+    beta=2*sqrtA*sqrt(2);
+    b0=A*((A+1)-(A-1)*cs+beta*sn/2);
+    b1=2*A*((A-1)-(A+1)*cs);
+    b2=A*((A+1)-(A-1)*cs-beta*sn/2);
+    a0=(A+1)+(A-1)*cs+beta*sn/2;
+    a1=-2*((A-1)+(A+1)*cs);
+    a2=(A+1)+(A-1)*cs-beta*sn/2;
+  ) : typ==2 ? (
+    beta=2*sqrtA*sqrt(2);
+    b0=A*((A+1)+(A-1)*cs+beta*sn/2);
+    b1=-2*A*((A-1)+(A+1)*cs);
+    b2=A*((A+1)+(A-1)*cs-beta*sn/2);
+    a0=(A+1)-(A-1)*cs+beta*sn/2;
+    a1=2*((A-1)-(A+1)*cs);
+    a2=(A+1)-(A-1)*cs-beta*sn/2;
+  ) : (
+    alpha=sn/(2*0.7071067811865476);
+    typ==3 ? (b0=(1+cs)/2; b1=-(1+cs); b2=b0;) : (b0=(1-cs)/2; b1=1-cs; b2=b0;);
+    a0=1+alpha; a1=-2*cs; a2=1-alpha;
+  );
+  base[0]=b0/a0; base[1]=b1/a0; base[2]=b2/a0; base[3]=a1/a0; base[4]=a2/a0;
+);
+// Each filter owns 8 coefficient cells and 2 separate channel states.
+coef=0; stL=128; stR=192;
+function refresh() (
+  setcoeff(coef+0,(slider4>=0.5 ? 1 : 0),slider1,slider2,slider3);
+  setcoeff(coef+8,0,slider5,slider6,slider7);
+  setcoeff(coef+16,0,slider9,slider10,slider11);
+  setcoeff(coef+24,0,slider13,slider14,slider15);
+  setcoeff(coef+32,0,slider17,slider18,slider19);
+  setcoeff(coef+40,(slider24>=0.5 ? 2 : 0),slider21,slider22,slider23);
+  setcoeff(coef+48,3,40,0,0.707);
+  setcoeff(coef+56,4,17000,0,0.707);
+  trim=exp(log(10)*slider27/20);
+);
+refresh();
+
+@slider
+refresh();
+
+@block
+refresh();
+
+@sample
+l=spl0; r=spl1;
+slider25 ? (l=biquad(coef+48,stL+12,l);r=biquad(coef+48,stR+12,r););
+l=biquad(coef+0,stL+0,l);r=biquad(coef+0,stR+0,r);
+l=biquad(coef+8,stL+2,l);r=biquad(coef+8,stR+2,r);
+l=biquad(coef+16,stL+4,l);r=biquad(coef+16,stR+4,r);
+l=biquad(coef+24,stL+6,l);r=biquad(coef+24,stR+6,r);
+l=biquad(coef+32,stL+8,l);r=biquad(coef+32,stR+8,r);
+l=biquad(coef+40,stL+10,l);r=biquad(coef+40,stR+10,r);
+slider26 ? (l=biquad(coef+56,stL+14,l);r=biquad(coef+56,stR+14,r););
+spl0=l*trim; spl1=r*trim;
+
+@gfx 930 620
+function color(r,g,b) (gfx_set(r,g,b,1););
+function txt(x,y,t) (gfx_x=x;gfx_y=y;gfx_drawstr(t););
+function knob(x,y,r,v,lo,hi) local(a) (
+  color(0.16,0.19,0.23);gfx_circle(x,y,r,1);
+  color(0.35,0.41,0.47);gfx_circle(x,y,r,0);
+  a=(-0.75+1.5*(v-lo)/(hi-lo))*$pi;
+  color(0.26,0.84,0.74);gfx_line(x,y,x+cos(a)*r*0.77,y+sin(a)*r*0.77,3);
+);
+function band(i,x,y,f,g,q,shape,label) (
+  color(0.12,0.15,0.19);gfx_rect(x-134,y-30,268,213);
+  color(0.94,0.96,0.98);txt(x-117,y-20,label);
+  knob(x-79,y+43,22,f,20,20000);knob(x,y+43,22,g,-6,6);knob(x+79,y+43,22,q,0.5,5);
+  gfx_setfont(1,"Arial",12);color(0.67,0.73,0.78);
+  txt(x-111,y+76,"FREQ");txt(x-16,y+76,"GAIN");txt(x+68,y+76,"Q");
+  gfx_x=x-116;gfx_y=y+95;gfx_drawnumber(f,0);gfx_drawstr(" Hz");
+  gfx_x=x-30;gfx_y=y+95;gfx_drawnumber(g,2);gfx_drawstr(" dB");
+  gfx_x=x+65;gfx_y=y+95;gfx_drawnumber(q,1);
+  (i==0 || i==5) ? (
+    shape ? color(0.26,0.84,0.74) : color(0.35,0.41,0.47);
+    gfx_rect(x-62,y+133,124,32);color(0.04,0.07,0.09);txt(x-36,y+142,shape ? "SHELF" : "BELL");
+  );
+  gfx_setfont(1,"Arial",14);
+);
+color(0.065,0.08,0.105);gfx_rect(0,0,gfx_w,gfx_h);
+color(0.26,0.84,0.74);gfx_rect(0,0,gfx_w,5);
+gfx_setfont(1,"Arial",25,'b');color(0.95,0.97,0.99);txt(26,19,"JMR AUDIO   /   MASTER EQ ONE");
+gfx_setfont(1,"Arial",13);color(0.62,0.69,0.75);txt(28,56,"SIX BAND PARAMETRIC MASTERING EQ  -  v1.1");
+gfx_setfont(1,"Arial",14);
+band(0,165,117,slider1,slider2,slider3,slider4,"LOW");
+band(1,465,117,slider5,slider6,slider7,slider8,"LOW MID");
+band(2,765,117,slider9,slider10,slider11,slider12,"MID 1");
+band(3,165,350,slider13,slider14,slider15,slider16,"MID 2");
+band(4,465,350,slider17,slider18,slider19,slider20,"HIGH MID");
+band(5,765,350,slider21,slider22,slider23,slider24,"HIGH");
+color(0.12,0.15,0.19);gfx_rect(28,555,874,51);
+slider25 ? color(0.26,0.84,0.74) : color(0.35,0.41,0.47);gfx_rect(44,565,130,30);
+color(0.03,0.06,0.07);txt(63,573,slider25 ? "HP 40 ON" : "HP 40 OFF");
+slider26 ? color(0.26,0.84,0.74) : color(0.35,0.41,0.47);gfx_rect(190,565,154,30);
+color(0.03,0.06,0.07);txt(207,573,slider26 ? "LP 17K ON" : "LP 17K OFF");
+color(0.75,0.81,0.85);txt(470,573,"OUTPUT");
+knob(585,580,19,slider27,-6,6);
+gfx_x=620;gfx_y=573;gfx_drawnumber(slider27,1);gfx_drawstr(" dB");
+color(0.55,0.63,0.69);txt(752,573,"SHIFT = FINE");
+(mouse_cap & 1) ? (
+  !dragging ? (
+    dragging=1;start_y=mouse_y;which=0;
+    mouse_y>=565 && mouse_y<=595 ? (
+      mouse_x>=44 && mouse_x<=174 ? (slider25=1-slider25;sliderchange(1<<24););
+      mouse_x>=190 && mouse_x<=344 ? (slider26=1-slider26;sliderchange(1<<25););
+      abs(mouse_x-585)<26 ? which=27;
+    );
+    abs(mouse_y-160)<29 ? (
+      abs(mouse_x-86)<29 ? which=1;
+      abs(mouse_x-165)<29 ? which=2;
+      abs(mouse_x-244)<29 ? which=3;
+    );
+    mouse_x>=103 && mouse_x<=227 && mouse_y>=250 && mouse_y<=282 ? (slider4=1-slider4;sliderchange(1<<3););
+    abs(mouse_y-160)<29 ? (
+      abs(mouse_x-386)<29 ? which=5;
+      abs(mouse_x-465)<29 ? which=6;
+      abs(mouse_x-544)<29 ? which=7;
+    );
+    abs(mouse_y-160)<29 ? (
+      abs(mouse_x-686)<29 ? which=9;
+      abs(mouse_x-765)<29 ? which=10;
+      abs(mouse_x-844)<29 ? which=11;
+    );
+    abs(mouse_y-393)<29 ? (
+      abs(mouse_x-86)<29 ? which=13;
+      abs(mouse_x-165)<29 ? which=14;
+      abs(mouse_x-244)<29 ? which=15;
+    );
+    abs(mouse_y-393)<29 ? (
+      abs(mouse_x-386)<29 ? which=17;
+      abs(mouse_x-465)<29 ? which=18;
+      abs(mouse_x-544)<29 ? which=19;
+    );
+    abs(mouse_y-393)<29 ? (
+      abs(mouse_x-686)<29 ? which=21;
+      abs(mouse_x-765)<29 ? which=22;
+      abs(mouse_x-844)<29 ? which=23;
+    );
+    mouse_x>=703 && mouse_x<=827 && mouse_y>=483 && mouse_y<=515 ? (slider24=1-slider24;sliderchange(1<<23););
+    which>0 ? (
+      which==1 ? start_v=slider1;
+      which==2 ? start_v=slider2;
+      which==3 ? start_v=slider3;
+      which==4 ? start_v=slider4;
+      which==5 ? start_v=slider5;
+      which==6 ? start_v=slider6;
+      which==7 ? start_v=slider7;
+      which==8 ? start_v=slider8;
+      which==9 ? start_v=slider9;
+      which==10 ? start_v=slider10;
+      which==11 ? start_v=slider11;
+      which==12 ? start_v=slider12;
+      which==13 ? start_v=slider13;
+      which==14 ? start_v=slider14;
+      which==15 ? start_v=slider15;
+      which==16 ? start_v=slider16;
+      which==17 ? start_v=slider17;
+      which==18 ? start_v=slider18;
+      which==19 ? start_v=slider19;
+      which==20 ? start_v=slider20;
+      which==21 ? start_v=slider21;
+      which==22 ? start_v=slider22;
+      which==23 ? start_v=slider23;
+      which==24 ? start_v=slider24;
+      which==25 ? start_v=slider25;
+      which==26 ? start_v=slider26;
+      which==27 ? start_v=slider27;
+    );
+  );
+  which>0 ? (
+    fine=(mouse_cap & 8) ? 0.15 : 1;
+    dy=(start_y-mouse_y)*fine;
+    which==1 ? (slider1=max(20,min(400,floor(start_v+dy*(380)/230+0.5))););
+    which==2 ? (slider2=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==3 ? (slider3=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==5 ? (slider5=max(60,min(1200,floor(start_v+dy*(1140)/230+0.5))););
+    which==6 ? (slider6=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==7 ? (slider7=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==9 ? (slider9=max(150,min(3000,floor(start_v+dy*(2850)/230+0.5))););
+    which==10 ? (slider10=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==11 ? (slider11=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==13 ? (slider13=max(400,min(6000,floor(start_v+dy*(5600)/230+0.5))););
+    which==14 ? (slider14=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==15 ? (slider15=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==17 ? (slider17=max(1000,min(12000,floor(start_v+dy*(11000)/230+0.5))););
+    which==18 ? (slider18=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==19 ? (slider19=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==21 ? (slider21=max(3000,min(19000,floor(start_v+dy*(16000)/230+0.5))););
+    which==22 ? (slider22=max(-6,min(6,floor((start_v+dy*12/190)*4+0.5)/4)););
+    which==23 ? (slider23=max(0.5,min(5,floor((start_v+dy*4.5/190)*2+0.5)/2)););
+    which==27 ? (slider27=max(-6,min(6,floor((start_v+dy*12/190)*10+0.5)/10)););
+    sliderchange(1<<(which-1));
+  );
+) : (dragging=0;which=0;);

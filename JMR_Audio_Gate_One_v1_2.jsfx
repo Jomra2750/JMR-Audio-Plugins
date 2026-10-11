@@ -1,0 +1,157 @@
+desc:JMR Audio - Gate One v1.2
+// Stereo linked gate with hysteresis, hold, attack, release, range and GUI.
+// Input and output are stereo. No lookahead; zero latency.
+slider1:-30<-80,0,1>-Threshold (dB)
+slider2:0.2<0.05,10,0.05>-Attack (ms)
+slider3:0<0,500,1>-Hold (ms)
+slider4:180<10,1500,1>-Release (ms)
+slider5:-60<-80,0,1>-Range (dB)
+slider6:0<0,1,1{On,Bypass}>-Bypass
+slider7:0<0,1,1{Off,On}>-Sidechain HP
+slider8:80<20,500,1>-Sidechain HP Frequency (Hz)
+slider9:0<0,1,1{Off,On}>-Sidechain LP
+slider10:2000<200,16000,1>-Sidechain LP Frequency (Hz)
+
+@init
+function db2lin(db) ( exp(db*0.11512925464970229); );
+function clamp(x,a,b) ( max(a,min(b,x)); );
+function recalc() (
+  threshold=db2lin(slider1);
+  close_threshold=db2lin(slider1-3); // 3 dB hysteresis
+  attack_coeff=exp(-1/(max(0.05,slider2)*0.001*srate));
+  release_coeff=exp(-1/(max(1,slider4)*0.001*srate));
+  detector_coeff=exp(-1/(0.001*srate)); // 1 ms envelope follower
+  hold_samples=slider3*0.001*srate;
+  floor_gain=db2lin(slider5);
+  // Second-order Butterworth sidechain filters; detector only.
+  hp_f=min(slider8, srate*0.45);
+  lp_f=min(slider10,srate*0.45);
+  w=2*$pi*hp_f/srate; c=cos(w); si=sin(w); a=si*0.7071067811865476;
+  inv=1/(1+a);
+  hp_b0=(1+c)*0.5*inv; hp_b1=-(1+c)*inv; hp_b2=hp_b0;
+  hp_a1=-2*c*inv; hp_a2=(1-a)*inv;
+  w=2*$pi*lp_f/srate; c=cos(w); si=sin(w); a=si*0.7071067811865476;
+  inv=1/(1+a);
+  lp_b0=(1-c)*0.5*inv; lp_b1=(1-c)*inv; lp_b2=lp_b0;
+  lp_a1=-2*c*inv; lp_a2=(1-a)*inv;
+);
+recalc();
+gain=1; detector=0; gate_open=0; hold_left=0; meter_gr=0;
+hp_z1_l=hp_z2_l=hp_z1_r=hp_z2_r=0;
+lp_z1_l=lp_z2_l=lp_z1_r=lp_z2_r=0;
+
+@slider
+recalc();
+
+@block
+recalc();
+
+@sample
+slider6 < 0.5 ? (
+  // Filter only the internal key signal. Audio remains untouched until gain stage.
+  key_l=spl0; key_r=spl1;
+  slider7>0.5 ? (
+    y=hp_b0*key_l+hp_z1_l; hp_z1_l=hp_b1*key_l-hp_a1*y+hp_z2_l; hp_z2_l=hp_b2*key_l-hp_a2*y; key_l=y;
+    y=hp_b0*key_r+hp_z1_r; hp_z1_r=hp_b1*key_r-hp_a1*y+hp_z2_r; hp_z2_r=hp_b2*key_r-hp_a2*y; key_r=y;
+  ) : (hp_z1_l=hp_z2_l=hp_z1_r=hp_z2_r=0;);
+  slider9>0.5 ? (
+    y=lp_b0*key_l+lp_z1_l; lp_z1_l=lp_b1*key_l-lp_a1*y+lp_z2_l; lp_z2_l=lp_b2*key_l-lp_a2*y; key_l=y;
+    y=lp_b0*key_r+lp_z1_r; lp_z1_r=lp_b1*key_r-lp_a1*y+lp_z2_r; lp_z2_r=lp_b2*key_r-lp_a2*y; key_r=y;
+  ) : (lp_z1_l=lp_z2_l=lp_z1_r=lp_z2_r=0;);
+  level=max(abs(key_l),abs(key_r));
+  // Fast attack, 1 ms decay on detector to preserve transient sensitivity
+  detector=level>detector ? level : detector*detector_coeff+(1-detector_coeff)*level;
+  gate_open ? (
+    detector<close_threshold ? (
+      hold_left<=0 ? gate_open=0 : hold_left-=1;
+    ) : hold_left=hold_samples;
+  ) : (
+    detector>=threshold ? (gate_open=1; hold_left=hold_samples;);
+  );
+  target=gate_open ? 1 : floor_gain;
+  coeff=target>gain ? attack_coeff : release_coeff;
+  gain=target+(gain-target)*coeff;
+  spl0*=gain;
+  spl1*=gain;
+  meter_gr=20*log(max(gain,0.000001))/log(10);
+) : (
+  meter_gr=0;
+);
+
+@gfx 760 490
+function col(r,g,b) (gfx_set(r,g,b,1););
+function label(x,y,t) (gfx_x=x;gfx_y=y;gfx_drawstr(t););
+function knob(x,y,r,val,lo,hi) local(a) (
+  col(0.16,0.19,0.23);gfx_circle(x,y,r,1);
+  col(0.35,0.41,0.47);gfx_circle(x,y,r,0);
+  a=(-0.75+1.5*(val-lo)/(hi-lo))*$pi;
+  col(0.26,0.84,0.74);gfx_line(x,y,x+cos(a)*r*0.75,y+sin(a)*r*0.75,3);
+);
+col(0.065,0.08,0.105);gfx_rect(0,0,gfx_w,gfx_h);
+col(0.26,0.84,0.74);gfx_rect(0,0,gfx_w,5);
+gfx_setfont(1,"Arial",24,'b');col(0.95,0.97,0.99);label(24,20,"JMR AUDIO   /   GATE ONE");
+gfx_setfont(1,"Arial",13);col(0.56,0.62,0.68);label(25,56,"STEREO LINKED DRUM GATE  -  v1.2");
+i=0;
+loop(5,
+  x=82+i*145;
+  i==0 ? (v=slider1;lo=-80;hi=0;nm="THRESHOLD";unit=" dB";)
+  : i==1 ? (v=slider2;lo=0.05;hi=10;nm="ATTACK";unit=" ms";)
+  : i==2 ? (v=slider3;lo=0;hi=500;nm="HOLD";unit=" ms";)
+  : i==3 ? (v=slider4;lo=10;hi=1500;nm="RELEASE";unit=" ms";)
+  : (v=slider5;lo=-80;hi=0;nm="RANGE";unit=" dB";);
+  knob(x,165,33,v,lo,hi);
+  col(0.90,0.93,0.96);label(x-45,226,nm);
+  gfx_x=x-35;gfx_y=251;gfx_drawnumber(v,i==1 ? 2 : 0);gfx_drawstr(unit);
+  i+=1;
+);
+col(0.13,0.16,0.19);gfx_rect(20,295,720,75);
+col(0.90,0.93,0.96);label(35,308,"GAIN REDUCTION");
+col(0.19,0.23,0.27);gfx_rect(185,309,410,18);
+col(0.26,0.84,0.74);gfx_rect(185,309,clamp(-meter_gr/80,0,1)*410,18);
+col(0.90,0.93,0.96);gfx_x=605;gfx_y=309;gfx_drawnumber(meter_gr,1);gfx_drawstr(" dB");
+col(slider6>0.5 ? 0.65 : 0.26,slider6>0.5 ? 0.26 : 0.84,slider6>0.5 ? 0.26 : 0.74);
+gfx_rect(625,340,100,24);col(0.05,0.07,0.08);label(641,345,slider6>0.5 ? "BYPASS" : "ACTIVE");
+col(0.56,0.62,0.68);label(35,346,"DRAG UP / DOWN  |  SHIFT = FINE  |  3 dB HYSTERESIS");
+// Dedicated internal (self) sidechain controls. Click HP/LP to toggle;
+// click frequency readout to cycle fixed frequencies.
+col(0.13,0.16,0.19);gfx_rect(20,383,720,90);
+col(0.95,0.97,0.99);label(35,392,"SIDECHAIN   /   SELF TRIGGER");
+col(0.56,0.62,0.68);label(35,417,"DETECTOR ONLY - AUDIO PATH UNFILTERED");
+col(slider7 ? 0.26 : 0.30,slider7 ? 0.84 : 0.34,slider7 ? 0.74 : 0.39);gfx_rect(325,393,72,30);
+col(0.05,0.07,0.08);label(335,401,slider7 ? "HP ON" : "HP OFF");
+col(0.19,0.23,0.27);gfx_rect(405,393,105,30);
+col(0.95,0.97,0.99);gfx_x=418;gfx_y=401;gfx_drawnumber(slider8,0);gfx_drawstr(" Hz");
+col(slider9 ? 0.26 : 0.30,slider9 ? 0.84 : 0.34,slider9 ? 0.74 : 0.39);gfx_rect(530,393,72,30);
+col(0.05,0.07,0.08);label(540,401,slider9 ? "LP ON" : "LP OFF");
+col(0.19,0.23,0.27);gfx_rect(610,393,115,30);
+col(0.95,0.97,0.99);gfx_x=622;gfx_y=401;gfx_drawnumber(slider10,0);gfx_drawstr(" Hz");
+col(0.56,0.62,0.68);label(325,438,"CLICK FREQUENCY TO STEP  |  HP 20-500 Hz  |  LP 200-16000 Hz");
+// Vertical drag, same interaction convention as EQ One.
+mouse_cap&1 ? (
+  !dragging ? (
+    dragging=1;drag_y=mouse_y;drag_value=0;drag_idx=-1;
+    i=0;loop(5, x=82+i*145;abs(mouse_x-x)<48 && abs(mouse_y-165)<55 ? (drag_idx=i;drag_value=i==0?slider1:i==1?slider2:i==2?slider3:i==3?slider4:slider5;);i+=1;);
+    mouse_x>=625 && mouse_x<=725 && mouse_y>=340 && mouse_y<=365 ? (slider6=1-slider6;sliderchange(slider6););
+    mouse_y>=393 && mouse_y<=423 ? (
+      mouse_x>=325 && mouse_x<397 ? (slider7=1-slider7;sliderchange(slider7););
+      mouse_x>=405 && mouse_x<510 ? (
+        slider8=slider8<40?40:slider8<75?75:slider8<125?125:slider8<220?220:slider8<400?400:20;
+        sliderchange(slider8);
+      );
+      mouse_x>=530 && mouse_x<602 ? (slider9=1-slider9;sliderchange(slider9););
+      mouse_x>=610 && mouse_x<=725 ? (
+        slider10=slider10<400?400:slider10<800?800:slider10<1200?1200:slider10<2000?2000:slider10<4000?4000:slider10<8000?8000:slider10<12000?12000:slider10<16000?16000:200;
+        sliderchange(slider10);
+      );
+    );
+  );
+  drag_idx>=0 ? (
+    delta=drag_y-mouse_y;
+    fine=(mouse_cap&8) ? 0.1 : 1;
+    drag_idx==0 ? (slider1=clamp(floor(drag_value+delta*0.35*fine+0.5),-80,0);sliderchange(slider1);)
+    : drag_idx==1 ? (slider2=clamp(floor((drag_value+delta*0.12*fine)*100+0.5)/100,0.05,10);sliderchange(slider2);)
+    : drag_idx==2 ? (slider3=clamp(floor(drag_value+delta*2*fine+0.5),0,500);sliderchange(slider3);)
+    : drag_idx==3 ? (slider4=clamp(floor(drag_value+delta*5*fine+0.5),10,1500);sliderchange(slider4);)
+    : (slider5=clamp(floor(drag_value+delta*0.35*fine+0.5),-80,0);sliderchange(slider5););
+  );
+) : (dragging=0;drag_idx=-1;);
