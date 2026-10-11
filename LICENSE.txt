@@ -1,0 +1,52 @@
+JMR AUDIO – FREEWARE LICENSE
+Version 1.0 – October 2026
+
+Copyright © 2026 JMR Audio.
+All rights reserved.
+
+1. GRANT OF LICENSE
+
+JMR Audio grants users a non-exclusive, royalty-free license to install and use its plugins for personal and commercial audio production.
+
+2. PERMITTED USE
+
+Users may:
+- Download and install JMR Audio plugins free of charge.
+- Use the plugins in personal and commercial audio, music, video and broadcast productions.
+- Inspect the included JSFX source code for personal reference.
+- Create and distribute audio productions made using the plugins without paying royalties to JMR Audio.
+
+3. RESTRICTIONS
+
+Without prior written permission from the rights holder, users may not:
+- Redistribute, sell, sublicense or repackage the plugins or their source code.
+- Publish modified or derivative versions of the plugins.
+- Remove or alter copyright or attribution notices.
+- Claim authorship or ownership of JMR Audio plugins or their source code.
+
+4. DONATIONS
+
+JMR Audio plugins are provided free of charge.
+
+Donations are entirely voluntary and do not grant additional licensing rights.
+
+5. OWNERSHIP
+
+The software and associated intellectual property rights remain with their respective rights holders.
+
+This license grants permission to use the software but does not transfer ownership.
+
+6. DISCLAIMER
+
+The software is provided "as is", without warranties of any kind, to the extent permitted by applicable law.
+
+JMR Audio is not liable for damages arising from use of the software, except where liability cannot legally be excluded.
+
+7. TERMINATION
+
+The license may terminate if the user materially violates its terms. Upon termination, the user must cease using the software and delete copies in their possession.
+
+---
+
+JMR Audio
+Open. Adjust. Mix.
